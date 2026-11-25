@@ -1,15 +1,14 @@
-import hashlib
 import tarfile
 from collections.abc import Iterator
 from dataclasses import astuple, dataclass
-from datetime import UTC, date, datetime
+from datetime import date, datetime
 from pathlib import Path, PurePosixPath
 
 import psycopg
 from google.protobuf.message import DecodeError
 from google.transit import gtfs_realtime_pb2
 
-from transit_loader.feeds import Feed, closed_archive_path
+from transit_loader.feeds import Feed, closed_archive_dates, closed_archive_path, file_sha256, parse_stamp
 
 
 @dataclass(frozen=True)
@@ -42,12 +41,11 @@ def _opt(msg, field: str):
 
 
 def parse_snapshot(member_name: str, payload: bytes) -> tuple[Snapshot, list[Position]] | None:
-    stamp = PurePosixPath(member_name).stem
-    fetched_at = datetime.strptime(stamp, "%Y%m%dT%H%M%SZ").replace(tzinfo=UTC)
     message = gtfs_realtime_pb2.FeedMessage()
     try:
+        fetched_at = parse_stamp(PurePosixPath(member_name).stem)
         message.ParseFromString(payload)
-    except DecodeError:
+    except (ValueError, DecodeError):
         return None
     positions = []
     for entity in message.entity:
@@ -98,19 +96,11 @@ POSITION_COLUMNS = (
 )
 
 
-def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as f:
-        for chunk in iter(lambda: f.read(1 << 20), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
-
-
 def load_realtime(
     conn: psycopg.Connection, root: Path, feed: Feed, archive_date: date, *, today_utc: date
 ) -> RtLoadResult:
     path = closed_archive_path(root, feed, archive_date, today_utc=today_utc)
-    snapshots: list[Snapshot] = []
+    snapshots: dict[datetime, Snapshot] = {}
     n_bad = n_positions = 0
     with conn.transaction(), conn.cursor() as cur:
         for table in ("rt_vehicle_position", "rt_snapshot", "rt_archive"):
@@ -119,23 +109,31 @@ def load_realtime(
             )
         with cur.copy(f"copy bronze.rt_vehicle_position ({POSITION_COLUMNS}) from stdin") as copy:
             for parsed in read_archive(path):
-                if parsed is None:
+                # rt_snapshot is keyed on fetched_at, so a repeated member name is a bad snapshot.
+                if parsed is None or parsed[0].fetched_at in snapshots:
                     n_bad += 1
                     continue
                 snapshot, positions = parsed
-                snapshots.append(snapshot)
+                snapshots[snapshot.fetched_at] = snapshot
                 for p in positions:
                     copy.write_row((feed, archive_date, snapshot.fetched_at, *astuple(p)))
                 n_positions += len(positions)
         with cur.copy(
             "copy bronze.rt_snapshot (feed, archive_date, fetched_at, header_ts, n_entities) from stdin"
         ) as copy:
-            for s in snapshots:
+            for s in snapshots.values():
                 copy.write_row((feed, archive_date, s.fetched_at, s.header_ts, s.n_entities))
         cur.execute(
             "insert into bronze.rt_archive"
             " (feed, archive_date, archive_sha256, n_snapshots, n_bad_snapshots, n_positions)"
             " values (%s, %s, %s, %s, %s, %s)",
-            (feed, archive_date, _sha256(path), len(snapshots), n_bad, n_positions),
+            (feed, archive_date, file_sha256(path), len(snapshots), n_bad, n_positions),
         )
     return RtLoadResult(feed, archive_date, len(snapshots), n_bad, n_positions)
+
+
+def missing_archive_dates(
+    conn: psycopg.Connection, root: Path, feed: Feed, *, today_utc: date, earliest: date
+) -> list[date]:
+    loaded = {row[0] for row in conn.execute("select archive_date from bronze.rt_archive where feed = %s", (feed,))}
+    return [d for d in closed_archive_dates(root, feed, today_utc=today_utc, earliest=earliest) if d not in loaded]

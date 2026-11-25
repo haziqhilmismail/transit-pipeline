@@ -1,10 +1,10 @@
 from datetime import UTC, date, datetime
 
 import pytest
-from conftest import BUS, feed_message
+from conftest import BUS, feed_message, write_tar_xz
 
 from transit_loader.feeds import ArchiveNotClosed, Feed, closed_archive_path
-from transit_loader.realtime import Position, Snapshot, parse_snapshot, read_archive
+from transit_loader.realtime import Position, Snapshot, load_realtime, parse_snapshot, read_archive
 
 KL = Feed.RAPID_BUS_KL
 
@@ -45,3 +45,14 @@ def test_closed_archive_path_never_returns_the_open_day(archive_root):
         closed_archive_path(archive_root, KL, date(2026, 11, 21), today_utc=today)
     with pytest.raises(ArchiveNotClosed):
         closed_archive_path(archive_root, KL, date(2026, 11, 19), today_utc=today)
+
+
+@pytest.mark.db
+def test_load_counts_unnamed_and_repeated_members_as_bad_snapshots(conn, tmp_path):
+    ping = feed_message(1795132800, [{**BUS, "ts": 1795132790}])
+    members = {"20261120T000021Z.pb": ping, "retry/20261120T000021Z.pb": ping, "latest.pb": ping}
+    write_tar_xz(tmp_path / "realtime" / KL / "2026-11-20.tar.xz", members)
+
+    result = load_realtime(conn, tmp_path, KL, date(2026, 11, 20), today_utc=date(2026, 11, 21))
+
+    assert (result.n_snapshots, result.n_bad_snapshots, result.n_positions) == (1, 2, 1)

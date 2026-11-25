@@ -69,7 +69,7 @@ def archive_root(tmp_path: Path) -> Path:
 
 
 @pytest.fixture
-def conn():
+def warehouse_dsn():
     dsn = os.environ.get("WAREHOUSE_DSN")
     if not dsn:
         pytest.skip("WAREHOUSE_DSN not set")
@@ -80,8 +80,12 @@ def conn():
     with admin:
         admin.execute("drop database if exists transit_test with (force)")
         admin.execute("create database transit_test")
-    test_dsn = psycopg.conninfo.make_conninfo(dsn, dbname="transit_test")
+    return psycopg.conninfo.make_conninfo(dsn, dbname="transit_test")
+
+
+@pytest.fixture
+def conn(warehouse_dsn):
     from transit_loader.db import connect
 
-    with connect(test_dsn) as c:
+    with connect(warehouse_dsn) as c:
         yield c

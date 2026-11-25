@@ -1,6 +1,5 @@
 {{ config(contract={'enforced': true}) }}
 
--- One observed run. Headway is measured within (feed, service date, route, pattern).
 with runs as (
     select * from {{ ref('int_trip_instances') }} where is_observed_run
 ),
@@ -33,7 +32,6 @@ matched as (
     select h.*, slot.departure_at as matched_departure_at, slot.sched_headway_s
     from headways h
     left join lateral (
-        -- nearest scheduled slot, not "at or before": a run that leaves a minute early still matches its slot
         select s.departure_at, s.sched_headway_s
         from {{ ref('int_scheduled_departures') }} s
         where (s.feed, s.service_date, s.route_id, s.pattern_id) = (h.feed, h.service_date, h.route_id, h.pattern_id)

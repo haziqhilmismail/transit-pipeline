@@ -2,7 +2,7 @@ from datetime import timedelta
 
 from airflow.sdk import Asset, Param, TriggerRule, dag, task
 
-BRONZE = Asset("transit_bronze")  # same asset transit_ingest emits
+BRONZE = Asset("transit_bronze")
 
 DBT = "cd /opt/airflow/dbt && dbt"
 
@@ -20,7 +20,6 @@ DBT = "cd /opt/airflow/dbt && dbt"
 def transit_transform():
     @task.bash
     def dbt_build(params=None) -> str:
-        """Without params, dbt picks the service dates to rebuild from bronze state (see macros/window.sql)."""
         if params["start_date"] and params["end_date"]:
             window = f"{{start_date: '{params['start_date']}', end_date: '{params['end_date']}'}}"
             return f"{DBT} build --vars \"{window}\""

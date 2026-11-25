@@ -28,7 +28,6 @@ def test_loads_converge_to_the_same_rows_when_run_twice(conn, archive_root):
     rerun_static = load_static(conn, archive_root, KL)
     load_realtime(conn, archive_root, KL, DAY, today_utc=TODAY)
 
-    # routes.txt is identical in both versions, so its 2 rows are stored once; 2 calendars of 1 row each.
     assert first == (3, 3, 1, 2, 4, 4)
     assert counts(conn) == first
     assert rerun_static.versions_loaded == 0

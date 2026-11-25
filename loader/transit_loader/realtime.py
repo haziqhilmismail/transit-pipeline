@@ -21,8 +21,6 @@ class Snapshot:
 
 @dataclass(frozen=True)
 class Position:
-    """One VehiclePosition entity. None means the field is absent in the protobuf."""
-
     entity_id: str
     vehicle_id: str | None
     vehicle_label: str | None
@@ -44,7 +42,6 @@ def _opt(msg, field: str):
 
 
 def parse_snapshot(member_name: str, payload: bytes) -> tuple[Snapshot, list[Position]] | None:
-    """None when the payload is not a FeedMessage."""
     stamp = PurePosixPath(member_name).stem
     fetched_at = datetime.strptime(stamp, "%Y%m%dT%H%M%SZ").replace(tzinfo=UTC)
     message = gtfs_realtime_pb2.FeedMessage()
@@ -80,7 +77,6 @@ def parse_snapshot(member_name: str, payload: bytes) -> tuple[Snapshot, list[Pos
 
 
 def read_archive(path: Path) -> Iterator[tuple[Snapshot, list[Position]] | None]:
-    """Stream the .tar.xz: one snapshot in memory at a time."""
     with tarfile.open(path, "r|xz") as tar:
         for member in tar:
             if member.isfile() and member.name.endswith(".pb"):
@@ -113,7 +109,6 @@ def _sha256(path: Path) -> str:
 def load_realtime(
     conn: psycopg.Connection, root: Path, feed: Feed, archive_date: date, *, today_utc: date
 ) -> RtLoadResult:
-    """Replace one (feed, archive_date) in bronze in one transaction. A rerun gives the same rows."""
     path = closed_archive_path(root, feed, archive_date, today_utc=today_utc)
     snapshots: list[Snapshot] = []
     n_bad = n_positions = 0

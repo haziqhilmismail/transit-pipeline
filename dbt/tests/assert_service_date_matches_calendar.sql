@@ -1,5 +1,3 @@
--- The derived service date (MYT, 03:00 cutoff) agrees with the static calendar: for runs whose RT
--- trip_id is in the static version, the trip's service_id is active on that date for over 99% of runs.
 with runs as (
     select
         i.feed,

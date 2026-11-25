@@ -1,5 +1,3 @@
--- Runs with their static route and pattern. Route resolution order: the static trip of the RT
--- trip_id; else the RT route_id matched on feed_config.rt_route_match; else the raw RT value.
 with version_files as (
     select d.feed, d.service_date, f.file_name, f.file_sha256
     from {{ ref('int_service_dates') }} d

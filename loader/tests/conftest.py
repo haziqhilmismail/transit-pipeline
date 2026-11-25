@@ -50,7 +50,6 @@ BUS = {"id": "WVK361", "trip_id": "weekday_U3000_0", "start_time": "16:30:10", "
 
 @pytest.fixture
 def archive_root(tmp_path: Path) -> Path:
-    """One closed day (2026-11-20) per realtime feed fixture: 3 snapshots, one empty, one corrupt."""
     members = {
         "20261120T000021Z.pb": feed_message(1795132800, [{**BUS, "ts": 1795132790}]),
         "20261120T000041Z.pb": feed_message(1795132820, [{**BUS, "ts": 1795132810}, {**BUS, "id": "B2", "ts": 1}]),
@@ -71,7 +70,6 @@ def archive_root(tmp_path: Path) -> Path:
 
 @pytest.fixture
 def conn():
-    """A throwaway `transit_test` database next to the warehouse; skipped when Postgres is not reachable."""
     dsn = os.environ.get("WAREHOUSE_DSN")
     if not dsn:
         pytest.skip("WAREHOUSE_DSN not set")

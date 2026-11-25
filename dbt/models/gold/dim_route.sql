@@ -1,4 +1,3 @@
--- Every route in any loaded static version (latest attributes win), plus routes seen only in realtime.
 with static_routes as (
     select distinct on (v.feed, r.route_id)
         v.feed,

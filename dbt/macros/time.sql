@@ -1,4 +1,3 @@
-{# MYT service day: 03:00 to 03:00 next day, so a late-night run stays on the day it started. #}
 {% macro service_date(ts) -%}
     ((({{ ts }}) at time zone 'Asia/Kuala_Lumpur') - interval '3 hours')::date
 {%- endmacro %}

@@ -1,5 +1,3 @@
--- Intervals with no non-empty snapshot for longer than feed_gap_s. Rebuilt in full (small), so
--- gaps across archive boundaries need no extra logic.
 with snapshots as (
     select feed, fetched_at from {{ ref('stg_rt__snapshots') }} where n_entities > 0
 ),

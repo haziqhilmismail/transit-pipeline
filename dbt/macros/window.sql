@@ -1,8 +1,3 @@
-{#
-  The service dates a run rebuilds. With vars start_date/end_date: that range.
-  Otherwise: every complete date never built, or whose archives were loaded after its last
-  successful build (silver.build_log). A failed run writes no stamps, so the next run retries.
-#}
 {% macro transform_window() %}
     {% if var('start_date') %}
         {{ return({'start': var('start_date'), 'end': var('end_date') or var('start_date')}) }}
@@ -25,7 +20,6 @@
     {%- if w -%} {{ column }} between '{{ w.start }}'::date and '{{ w.end }}'::date {%- else -%} false {%- endif -%}
 {%- endmacro %}
 
-{# Pre-hook of windowed incremental models: clear the window first, so a rebuild with 0 rows still removes old rows. #}
 {% macro window_delete() %}
     {% if is_incremental() %}
         delete from {{ this }} where {{ window_filter('service_date') }}

@@ -3,7 +3,6 @@ version: "1.0.0"
 profile: transit
 
 vars:
-  # Manual rebuild range of service dates. Empty: dbt rebuilds the dates that bronze changed.
   start_date: null
   end_date: null
   session_gap_s: 1800
@@ -19,7 +18,6 @@ models:
   transit:
     staging:
       +schema: silver
-      # Small GTFS files are joined many times; as views each use would rescan the 2M-row gtfs_row.
       +materialized: table
     silver:
       +schema: silver

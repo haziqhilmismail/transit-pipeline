@@ -1,4 +1,3 @@
--- GTFS service_ids active on each service date, for every candidate static version.
 with files as (
     select feed, version_id, file_name, file_sha256 from {{ source('bronze', 'static_version_file') }}
 ),

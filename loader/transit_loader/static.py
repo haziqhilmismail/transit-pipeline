@@ -33,7 +33,6 @@ class GtfsFile:
 
 
 def read_version(path: Path) -> Iterator[GtfsFile]:
-    """Top-level entries in ALLOWED_FILES only, so `__MACOSX/` and shapes.txt are skipped."""
     with zipfile.ZipFile(path) as zf:
         for name in sorted(zf.namelist()):
             if name in ALLOWED_FILES:
@@ -63,11 +62,6 @@ def _sha256(path: Path) -> str:
 
 
 def load_static(conn: psycopg.Connection, root: Path, feed: Feed) -> StaticLoadResult:
-    """Load every version not yet in bronze.static_version, one transaction per version.
-
-    File rows are stored once per distinct content (sha256). The static_version row is written
-    last, so it marks a committed version.
-    """
     versions = list_static_versions(root, feed)
     with conn.cursor() as cur:
         cur.execute("select version_id from bronze.static_version where feed = %s", (feed,))

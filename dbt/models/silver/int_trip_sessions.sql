@@ -4,13 +4,6 @@
     pre_hook="{{ window_delete() }}",
 ) }}
 
--- Sessionize each vehicle's valid pings into runs (gaps and islands). A new run starts when:
---   the trip_id changes;
---   the vehicle was silent for more than session_gap_s while the feed itself was up
---     (a feed outage alone never splits a run; the run is flagged touches_outage);
---   the RT start_time of the same trip_id moves forward by more than start_time_jump_s.
---     On kl, start_time is stamped when a run is first sighted, so it jitters by a minute
---     within a run and is re-stamped when a frequency trip_id starts its next run.
 with pings as (
     select feed, service_date, vehicle_id, vehicle_at, trip_id, rt_route_id, rt_start_time, rt_direction_id, latitude, longitude
     from {{ ref('positions') }}
@@ -47,6 +40,8 @@ flagged as (
         prev_at is null
             or trip_id is distinct from prev_trip_id
             or silent_while_feed_up_s > {{ var('session_gap_s') }}
+            -- On kl, start_time is stamped when a run is first sighted, so it jitters by a minute
+            -- within a run and is re-stamped when a frequency trip_id starts its next run.
             or coalesce({{ gtfs_secs('rt_start_time') }} - {{ gtfs_secs('prev_start_time') }} > {{ var('start_time_jump_s') }}, false)
             as starts_run
     from gapped
@@ -56,7 +51,6 @@ numbered as (
     select
         *,
         sum(starts_run::int) over (partition by feed, service_date, vehicle_id order by vehicle_at) as run_num,
-        -- an outage inside a run, not the silence before it
         not starts_run and coalesce(outage_s, 0) > 0 as bridged_outage
     from flagged
 ),
@@ -99,7 +93,6 @@ select
     round(r.extent_m::numeric, 1) as extent_m,
     r.touches_outage,
     r.n_pings >= {{ var('min_pings') }} and r.extent_m >= {{ var('min_extent_m') }} as is_observed_run,
-    -- Seen from its start: the feed was up for session_gap_s before the first ping and the day had begun.
     r.departed_at >= {{ service_day_start('r.service_date') }} + make_interval(secs => {{ var('session_gap_s') }})
         and not exists (
             select 1 from {{ ref('int_feed_gaps') }} g

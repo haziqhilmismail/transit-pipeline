@@ -1,4 +1,3 @@
-{# Rows of one GTFS file name, over every distinct content (file_sha256) loaded for any feed. #}
 {% macro gtfs_rows(file_name) -%}
     select r.file_sha256, r.row_num, r.data
     from {{ source('bronze', 'gtfs_row') }} r

@@ -15,11 +15,10 @@ REALTIME_FEEDS: tuple[Feed, ...] = (Feed.RAPID_BUS_KL, Feed.MRT_FEEDER, Feed.KTM
 
 
 class ArchiveNotClosed(Exception):
-    """The .tar.xz for this day does not exist yet. Airflow retries on it."""
+    pass
 
 
 def closed_archive_path(root: Path, feed: Feed, archive_date: date, *, today_utc: date) -> Path:
-    """Return <root>/realtime/<feed>/<date>.tar.xz. Never the open, uncompressed `.tar` of today."""
     if archive_date >= today_utc:
         raise ValueError(f"{archive_date} is not a closed UTC day (today is {today_utc})")
     path = root / "realtime" / feed / f"{archive_date.isoformat()}.tar.xz"
@@ -37,7 +36,6 @@ class StaticVersion:
 
 
 def list_static_versions(root: Path, feed: Feed) -> list[StaticVersion]:
-    """All <root>/static/<feed>/*.zip, oldest first. File stem: 20261124T194911Z_<hash>."""
     versions = []
     for path in (root / "static" / feed).glob("*.zip"):
         stamp = path.stem.split("_", 1)[0]

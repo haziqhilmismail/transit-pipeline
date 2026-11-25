@@ -1,4 +1,3 @@
--- Feed gaps (no non-empty snapshot for more than feed_gap_s), split at service-day bounds.
 with days as (
     select d.feed, d.service_date, {{ service_day_start('d.service_date') }} as day_start
     from {{ ref('int_service_dates') }} d

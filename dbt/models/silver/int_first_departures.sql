@@ -1,6 +1,5 @@
 {{ config(materialized='incremental', incremental_strategy='append') }}
 
--- First-stop departure per trip, once per distinct stop_times.txt content (versions share most of them).
 select distinct on (file_sha256, trip_id)
     file_sha256,
     trip_id,

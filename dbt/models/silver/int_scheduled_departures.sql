@@ -5,8 +5,6 @@
     post_hook="create index if not exists scheduled_departures_slot on {{ this }} (feed, service_date, route_id, pattern_id, departure_at)",
 ) }}
 
--- One grain for both schedule kinds: frequency windows expanded into departures, and the
--- first-stop departure of each timetable trip. A trip with frequency rows uses them.
 with days as (
     select feed, service_date, version_id
     from {{ ref('int_service_dates') }}

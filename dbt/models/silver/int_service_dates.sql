@@ -1,6 +1,3 @@
--- One row per complete (feed, service date) with the static version it is measured against:
--- the latest version fetched before the day ended that runs at least one service that day.
--- The mrtfeeder calendar starts the day after each fetch, so "latest" alone can pick an empty one.
 with candidates as (
     select
         c.feed,

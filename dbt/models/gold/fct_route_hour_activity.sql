@@ -1,4 +1,3 @@
--- Observed runs active in each MYT clock hour (a run counts in every hour it spans).
 select
     r.feed,
     r.route_id,

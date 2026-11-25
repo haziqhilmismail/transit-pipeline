@@ -22,7 +22,6 @@ def transit_ingest():
 
     @task.bash(outlets=[BRONZE])
     def load_realtime(data_interval_start=None) -> str:
-        # The interval [D 00:30, D+1 00:30) loads archive D, which closed at about D+1 00:08.
         return f"transit-load realtime --date {data_interval_start:%Y-%m-%d}"
 
     load_static() >> load_realtime()

@@ -5,7 +5,6 @@
     post_hook="create index if not exists positions_vehicle on {{ this }} (feed, service_date, vehicle_id, vehicle_at)",
 ) }}
 
--- One row per reported vehicle position (feeds report the same ping in many snapshots).
 with days as (
     select d.feed, d.service_date
     from {{ ref('int_service_dates') }} d

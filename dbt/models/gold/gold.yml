@@ -118,7 +118,7 @@ models:
         data_type: numeric
       - name: feed_uptime_pct
         data_type: numeric
-        description: Share of the service day not inside a feed gap. Use it to discount a bad archive day.
+        description: Share of the scheduled service span (first to last scheduled departure) not inside a feed gap. Use it to discount a bad archive day.
 
   - name: fct_feed_gap
     description: Feed gaps over `feed_gap_s` (120 s), empty snapshots counted as gaps, split at service-day bounds.

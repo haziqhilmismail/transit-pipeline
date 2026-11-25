@@ -32,14 +32,27 @@ routes as (
     select feed, service_date, route_id from observed
 ),
 
+-- Uptime over the scheduled service span only: overnight the feeds send empty snapshots, which
+-- count as gaps but are not outages.
+service_span as (
+    select feed, service_date, min(departure_at) as first_at, max(departure_at) as last_at
+    from {{ ref('int_scheduled_departures') }}
+    group by feed, service_date
+),
+
 uptime as (
     select
         d.feed,
         d.service_date,
-        round(100 * (1 - coalesce(sum(g.gap_s_in_day), 0) / 86400.0), 1) as feed_uptime_pct
+        round((100 * (1 - coalesce(sum(
+            extract(epoch from least(g.gap_end_at, sp.last_at) - greatest(g.gap_start_at, sp.first_at))
+        ) filter (where g.feed is not null), 0) / nullif(extract(epoch from sp.last_at - sp.first_at), 0)))::numeric, 1) as feed_uptime_pct
     from days d
-    left join {{ ref('fct_feed_gap') }} g on g.feed = d.feed and g.service_date = d.service_date
-    group by d.feed, d.service_date
+    join service_span sp on sp.feed = d.feed and sp.service_date = d.service_date
+    left join {{ ref('fct_feed_gap') }} g
+        on g.feed = d.feed and g.service_date = d.service_date
+        and g.gap_start_at < sp.last_at and g.gap_end_at > sp.first_at
+    group by d.feed, d.service_date, sp.first_at, sp.last_at
 )
 
 select

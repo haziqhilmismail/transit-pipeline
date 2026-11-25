@@ -1,0 +1,37 @@
+name: transit
+version: "1.0.0"
+profile: transit
+
+vars:
+  # Manual rebuild range of service dates. Empty: dbt rebuilds the dates that bronze changed.
+  start_date: null
+  end_date: null
+  session_gap_s: 1800
+  start_time_jump_s: 600
+  min_pings: 5
+  min_extent_m: 500
+  valid_ts_skew_s: 900
+  feed_gap_s: 120
+  coverage_threshold: 0.9
+  headway_match_tolerance_s: 1800
+
+models:
+  transit:
+    staging:
+      +schema: silver
+      +materialized: view
+    silver:
+      +schema: silver
+      +materialized: table
+    gold:
+      +schema: gold
+      +materialized: table
+
+seeds:
+  transit:
+    +schema: silver
+
+on-run-start:
+  - "create table if not exists silver.build_log (feed text, service_date date, built_at timestamptz not null, primary key (feed, service_date))"
+on-run-end:
+  - "{{ stamp_built_dates(results) }}"

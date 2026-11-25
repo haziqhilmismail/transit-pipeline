@@ -1,0 +1,12 @@
+transit:
+  target: warehouse
+  outputs:
+    warehouse:
+      type: postgres
+      host: postgres
+      port: 5432
+      user: "{{ env_var('POSTGRES_USER') }}"
+      password: "{{ env_var('POSTGRES_PASSWORD') }}"
+      dbname: warehouse
+      schema: silver
+      threads: 2

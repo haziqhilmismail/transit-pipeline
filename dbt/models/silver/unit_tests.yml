@@ -1,0 +1,50 @@
+version: 2
+
+unit_tests:
+  - name: sessionization_splits_runs_by_trip_gap_and_restamp
+    description: >
+      A: start_time jitter of 60 s stays one run; a forward re-stamp of 650 s on the same trip_id starts a new run.
+      B: a 39 min silence while the feed is up splits; a 40 min silence inside a 39 min feed outage does not
+      (touches_outage); an invalid-timestamp ping in the silence is ignored. C: a trip_id change splits.
+      D: six pings that never move fail the 500 m movement gate.
+    model: int_trip_sessions
+    given:
+      - input: ref('positions')
+        rows:
+        - {"feed": "kl", "service_date": "2026-11-20", "vehicle_id": "A", "vehicle_at": "2026-11-20 01:00:00+00", "trip_id": "T1", "rt_start_time": "09:00:10", "latitude": 3.1, "longitude": 101.7, "is_valid_ts": true, "is_valid_position": true}
+        - {"feed": "kl", "service_date": "2026-11-20", "vehicle_id": "A", "vehicle_at": "2026-11-20 01:01:00+00", "trip_id": "T1", "rt_start_time": "09:00:10", "latitude": 3.101, "longitude": 101.7, "is_valid_ts": true, "is_valid_position": true}
+        - {"feed": "kl", "service_date": "2026-11-20", "vehicle_id": "A", "vehicle_at": "2026-11-20 01:02:00+00", "trip_id": "T1", "rt_start_time": "09:01:10", "latitude": 3.102, "longitude": 101.7, "is_valid_ts": true, "is_valid_position": true}
+        - {"feed": "kl", "service_date": "2026-11-20", "vehicle_id": "A", "vehicle_at": "2026-11-20 01:03:00+00", "trip_id": "T1", "rt_start_time": "09:01:10", "latitude": 3.103, "longitude": 101.7, "is_valid_ts": true, "is_valid_position": true}
+        - {"feed": "kl", "service_date": "2026-11-20", "vehicle_id": "A", "vehicle_at": "2026-11-20 01:04:00+00", "trip_id": "T1", "rt_start_time": "09:01:10", "latitude": 3.104, "longitude": 101.7, "is_valid_ts": true, "is_valid_position": true}
+        - {"feed": "kl", "service_date": "2026-11-20", "vehicle_id": "A", "vehicle_at": "2026-11-20 01:05:00+00", "trip_id": "T1", "rt_start_time": "09:01:10", "latitude": 3.105, "longitude": 101.7, "is_valid_ts": true, "is_valid_position": true}
+        - {"feed": "kl", "service_date": "2026-11-20", "vehicle_id": "A", "vehicle_at": "2026-11-20 01:12:00+00", "trip_id": "T1", "rt_start_time": "09:12:00", "latitude": 3.106, "longitude": 101.7, "is_valid_ts": true, "is_valid_position": true}
+        - {"feed": "kl", "service_date": "2026-11-20", "vehicle_id": "A", "vehicle_at": "2026-11-20 01:13:00+00", "trip_id": "T1", "rt_start_time": "09:12:00", "latitude": 3.1075, "longitude": 101.7, "is_valid_ts": true, "is_valid_position": true}
+        - {"feed": "kl", "service_date": "2026-11-20", "vehicle_id": "A", "vehicle_at": "2026-11-20 01:14:00+00", "trip_id": "T1", "rt_start_time": "09:12:00", "latitude": 3.109, "longitude": 101.7, "is_valid_ts": true, "is_valid_position": true}
+        - {"feed": "kl", "service_date": "2026-11-20", "vehicle_id": "A", "vehicle_at": "2026-11-20 01:15:00+00", "trip_id": "T1", "rt_start_time": "09:12:00", "latitude": 3.1105, "longitude": 101.7, "is_valid_ts": true, "is_valid_position": true}
+        - {"feed": "kl", "service_date": "2026-11-20", "vehicle_id": "A", "vehicle_at": "2026-11-20 01:16:00+00", "trip_id": "T1", "rt_start_time": "09:12:00", "latitude": 3.112, "longitude": 101.7, "is_valid_ts": true, "is_valid_position": true}
+        - {"feed": "kl", "service_date": "2026-11-20", "vehicle_id": "B", "vehicle_at": "2026-11-20 01:00:00+00", "trip_id": "T2", "latitude": 3.2, "longitude": 101.7, "is_valid_ts": true, "is_valid_position": true}
+        - {"feed": "kl", "service_date": "2026-11-20", "vehicle_id": "B", "vehicle_at": "2026-11-20 01:01:00+00", "trip_id": "T2", "latitude": 3.21, "longitude": 101.7, "is_valid_ts": true, "is_valid_position": true}
+        - {"feed": "kl", "service_date": "2026-11-20", "vehicle_id": "B", "vehicle_at": "2026-11-20 01:30:00+00", "trip_id": "T2", "latitude": 3.22, "longitude": 101.7, "is_valid_ts": false, "is_valid_position": true}
+        - {"feed": "kl", "service_date": "2026-11-20", "vehicle_id": "B", "vehicle_at": "2026-11-20 01:40:00+00", "trip_id": "T2", "latitude": 3.23, "longitude": 101.7, "is_valid_ts": true, "is_valid_position": true}
+        - {"feed": "kl", "service_date": "2026-11-20", "vehicle_id": "B", "vehicle_at": "2026-11-20 02:20:00+00", "trip_id": "T2", "latitude": 3.24, "longitude": 101.7, "is_valid_ts": true, "is_valid_position": true}
+        - {"feed": "kl", "service_date": "2026-11-20", "vehicle_id": "C", "vehicle_at": "2026-11-20 01:00:00+00", "trip_id": "T3", "latitude": 3.3, "longitude": 101.7, "is_valid_ts": true, "is_valid_position": true}
+        - {"feed": "kl", "service_date": "2026-11-20", "vehicle_id": "C", "vehicle_at": "2026-11-20 01:01:00+00", "trip_id": "T3", "latitude": 3.31, "longitude": 101.7, "is_valid_ts": true, "is_valid_position": true}
+        - {"feed": "kl", "service_date": "2026-11-20", "vehicle_id": "C", "vehicle_at": "2026-11-20 01:02:00+00", "trip_id": "T4", "latitude": 3.32, "longitude": 101.7, "is_valid_ts": true, "is_valid_position": true}
+        - {"feed": "kl", "service_date": "2026-11-20", "vehicle_id": "D", "vehicle_at": "2026-11-20 01:00:00+00", "trip_id": "T5", "latitude": 3.4, "longitude": 101.7, "is_valid_ts": true, "is_valid_position": true}
+        - {"feed": "kl", "service_date": "2026-11-20", "vehicle_id": "D", "vehicle_at": "2026-11-20 01:01:00+00", "trip_id": "T5", "latitude": 3.4, "longitude": 101.7, "is_valid_ts": true, "is_valid_position": true}
+        - {"feed": "kl", "service_date": "2026-11-20", "vehicle_id": "D", "vehicle_at": "2026-11-20 01:02:00+00", "trip_id": "T5", "latitude": 3.4, "longitude": 101.7, "is_valid_ts": true, "is_valid_position": true}
+        - {"feed": "kl", "service_date": "2026-11-20", "vehicle_id": "D", "vehicle_at": "2026-11-20 01:03:00+00", "trip_id": "T5", "latitude": 3.4, "longitude": 101.7, "is_valid_ts": true, "is_valid_position": true}
+        - {"feed": "kl", "service_date": "2026-11-20", "vehicle_id": "D", "vehicle_at": "2026-11-20 01:04:00+00", "trip_id": "T5", "latitude": 3.4, "longitude": 101.7, "is_valid_ts": true, "is_valid_position": true}
+        - {"feed": "kl", "service_date": "2026-11-20", "vehicle_id": "D", "vehicle_at": "2026-11-20 01:05:00+00", "trip_id": "T5", "latitude": 3.4, "longitude": 101.7, "is_valid_ts": true, "is_valid_position": true}
+      - input: ref('int_feed_gaps')
+        rows:
+        - {"feed": "kl", "gap_start_at": "2026-11-20 01:40:30+00", "gap_end_at": "2026-11-20 02:19:30+00", "gap_s": 2340}
+    expect:
+      rows:
+        - {"vehicle_id": "A", "trip_id": "T1", "departed_at": "2026-11-20 01:00:00+00", "n_pings": 6, "touches_outage": false, "is_observed_run": true}
+        - {"vehicle_id": "A", "trip_id": "T1", "departed_at": "2026-11-20 01:12:00+00", "n_pings": 5, "touches_outage": false, "is_observed_run": true}
+        - {"vehicle_id": "B", "trip_id": "T2", "departed_at": "2026-11-20 01:00:00+00", "n_pings": 2, "touches_outage": false, "is_observed_run": false}
+        - {"vehicle_id": "B", "trip_id": "T2", "departed_at": "2026-11-20 01:40:00+00", "n_pings": 2, "touches_outage": true, "is_observed_run": false}
+        - {"vehicle_id": "C", "trip_id": "T3", "departed_at": "2026-11-20 01:00:00+00", "n_pings": 2, "touches_outage": false, "is_observed_run": false}
+        - {"vehicle_id": "C", "trip_id": "T4", "departed_at": "2026-11-20 01:02:00+00", "n_pings": 1, "touches_outage": false, "is_observed_run": false}
+        - {"vehicle_id": "D", "trip_id": "T5", "departed_at": "2026-11-20 01:00:00+00", "n_pings": 6, "touches_outage": false, "is_observed_run": false}

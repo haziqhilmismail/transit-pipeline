@@ -1,0 +1,140 @@
+version: 2
+
+models:
+  - name: dim_route
+    description: Every route in any loaded static version (latest attributes), plus routes seen only in realtime.
+    data_tests:
+      - unique_combination: {columns: [feed, route_id]}
+    columns:
+      - name: route_code
+        description: The code a rider sees (short name, else long name).
+      - name: route_type
+        data_tests:
+          - accepted_values: {arguments: {values: [0, 1, 2, 3]}, config: {where: "route_type is not null"}}
+      - name: in_static
+        description: False for a route_id that only the realtime feed sends.
+
+  - name: fct_trip
+    description: >
+      One observed run (`is_observed_run`) with its headway against the schedule. The realtime feed tracks
+      only part of the fleet, so headways are classified only on route patterns with enough coverage.
+    columns:
+      - name: trip_instance_id
+        data_type: text
+        data_tests: [unique, not_null]
+      - name: feed
+        data_type: text
+        data_tests:
+          - accepted_values: {arguments: {values: [prasarana-rapid-bus-kl, prasarana-rapid-bus-mrtfeeder]}}
+      - name: service_date
+        data_type: date
+        description: MYT service day, 03:00 to 03:00.
+      - name: route_id
+        data_type: text
+        data_tests:
+          - not_null
+          - relationships: {arguments: {to: ref('dim_route'), field: route_id}}
+      - name: pattern_id
+        data_type: text
+        description: Static shape_id (else direction_id). Headways compare runs of one pattern only.
+      - name: vehicle_id
+        data_type: text
+      - name: trip_id
+        data_type: text
+      - name: departed_at
+        data_type: timestamptz
+        description: First valid ping of the run. Not a dispatch time.
+      - name: last_seen_at
+        data_type: timestamptz
+      - name: duration_s
+        data_type: int
+      - name: n_pings
+        data_type: int
+      - name: is_departure_observed
+        data_type: boolean
+      - name: touches_outage
+        data_type: boolean
+      - name: observed_headway_s
+        data_type: int
+        description: Seconds since the previous observed run of the same route and pattern that day.
+      - name: matched_departure_at
+        data_type: timestamptz
+        description: Nearest scheduled departure within `headway_match_tolerance_s` (1800 s).
+      - name: sched_headway_s
+        data_type: int
+        description: Scheduled headway at the matched departure.
+      - name: headway_ratio
+        data_type: numeric
+        description: observed_headway_s / sched_headway_s.
+      - name: pattern_scheduled_departures
+        data_type: int
+      - name: pattern_coverage
+        data_type: numeric
+        description: Observed runs / scheduled departures for this route pattern and day. Can pass 1.
+      - name: headway_class
+        data_type: text
+        description: >
+          unscheduled (no slot within tolerance), low_coverage (pattern_coverage below `coverage_threshold`, 0.9),
+          first_of_day, bunched (ratio < 0.5), on_headway (0.5 to 1.5), gapped (> 1.5).
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [unscheduled, low_coverage, first_of_day, bunched, on_headway, gapped]
+
+  - name: fct_route_hour_activity
+    description: Observed runs and vehicles active per route and MYT clock hour.
+    data_tests:
+      - unique_combination: {columns: [feed, route_id, service_date, hour_start_myt]}
+
+  - name: fct_route_day
+    description: >
+      One route on one complete service date. `coverage` is a lower bound on delivered service: the realtime
+      feed does not track every bus, so read it as feed coverage, not operator performance.
+    data_tests:
+      - unique_combination: {columns: [feed, service_date, route_id]}
+    columns:
+      - name: feed
+        data_type: text
+      - name: service_date
+        data_type: date
+      - name: route_id
+        data_type: text
+        data_tests:
+          - relationships: {arguments: {to: ref('dim_route'), field: route_id}}
+      - name: observed_trips
+        data_type: int
+      - name: scheduled_trips
+        data_type: int
+      - name: coverage
+        data_type: numeric
+        description: observed_trips / scheduled_trips. NULL when nothing was scheduled. Can pass 1.
+      - name: headway_runs
+        data_type: int
+        description: Runs with a headway class of bunched, on_headway or gapped.
+      - name: pct_on_headway
+        data_type: numeric
+        description: Share of headway_runs that are on_headway. NULL when no run qualifies (often, given coverage).
+      - name: median_headway_ratio
+        data_type: numeric
+      - name: feed_uptime_pct
+        data_type: numeric
+        description: Share of the service day not inside a feed gap. Use it to discount a bad archive day.
+
+  - name: fct_feed_gap
+    description: Feed gaps over `feed_gap_s` (120 s), empty snapshots counted as gaps, split at service-day bounds.
+    data_tests:
+      - unique_combination: {columns: [feed, service_date, gap_start_at]}
+    columns:
+      - name: gap_s_in_day
+        description: Part of the gap inside this service day.
+
+exposures:
+  - name: readme_queries
+    label: README analyst queries
+    type: analysis
+    owner: {name: transit-pipeline}
+    description: The example queries in README.md read these tables.
+    depends_on:
+      - ref('fct_route_day')
+      - ref('fct_trip')
+      - ref('fct_feed_gap')

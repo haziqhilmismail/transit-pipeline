@@ -1,0 +1,35 @@
+version: 2
+
+sources:
+  - name: bronze
+    description: Raw rows written only by the `transit-load` CLI. One schema, no per-feed tables.
+    schema: bronze
+    tables:
+      - name: rt_archive
+        description: One loaded GTFS-Realtime archive (one feed, one closed UTC day). Written last in the load transaction.
+        columns:
+          - name: feed
+          - name: archive_date
+          - name: loaded_at
+            description: When the loader committed this archive. dbt uses it to find service dates to rebuild.
+      - name: rt_snapshot
+        description: One .pb snapshot, empty ones included.
+        loaded_at_field: fetched_at
+        freshness:
+          warn_after: {count: 27, period: hour}
+          error_after: {count: 50, period: hour}
+        columns:
+          - name: fetched_at
+            description: Hoarder fetch time from the member file name (UTC).
+      - name: rt_vehicle_position
+        description: One VehiclePosition entity in one snapshot, as the protobuf gives it. NULL means the field is absent.
+      - name: static_version
+        description: One archived GTFS static zip. Written last in its transaction, so it marks a complete version.
+        loaded_at_field: fetched_at
+        freshness:
+          warn_after: {count: 3, period: day}
+          error_after: {count: 8, period: day}
+      - name: static_version_file
+        description: Which file content (sha256) each version holds per GTFS file name.
+      - name: gtfs_row
+        description: One CSV row of one distinct file content, as JSONB. Shared by every version with that content.

@@ -1,0 +1,5 @@
+feed,has_realtime,rt_usable,rt_route_match
+prasarana-rapid-bus-kl,true,true,route_id
+prasarana-rapid-bus-mrtfeeder,true,true,route_long_name
+ktmb,true,false,
+prasarana-rapid-rail-kl,false,false,

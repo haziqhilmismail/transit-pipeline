@@ -1,0 +1,97 @@
+version: 2
+
+models:
+  - name: int_complete_dates
+    description: >
+      (feed, service date) pairs whose two UTC archives (D-1 and D) are both loaded, with the later load time.
+      Gold shows complete dates only.
+    data_tests:
+      - unique_combination: {columns: [feed, service_date]}
+
+  - name: int_active_services
+    description: GTFS service_ids active on each complete service date, for every candidate static version.
+
+  - name: int_service_dates
+    description: One row per complete (feed, service date) and the static version it is measured against.
+    data_tests:
+      - unique_combination: {columns: [feed, service_date]}
+    columns:
+      - name: version_id
+        description: Latest static version fetched before the day ended that runs at least one service that day.
+      - name: has_service
+        description: False when no candidate version runs any service on the date.
+
+  - name: int_feed_gaps
+    description: Intervals with no non-empty snapshot for more than `feed_gap_s` (default 120 s).
+    data_tests:
+      - unique_combination: {columns: [feed, gap_start_at]}
+
+  - name: positions
+    description: >
+      One row per reported vehicle position (dedup of the same ping across snapshots; earliest snapshot kept).
+      Feeds with `rt_usable = false` in feed_config (ktmb) are left out.
+    data_tests:
+      - unique_combination: {columns: [feed, service_date, vehicle_id, vehicle_at]}
+    columns:
+      - name: n_snapshots
+        description: How many snapshots repeated this ping.
+      - name: is_valid_ts
+        description: Vehicle timestamp within `valid_ts_skew_s` (900 s) of the snapshot. One mrtfeeder bus reports 2029.
+      - name: is_valid_position
+        description: Inside a Peninsular Malaysia bounding box. ktmb and mrtfeeder send positions near (0, 0).
+
+  - name: int_trip_sessions
+    description: Vehicle pings sessionized into runs. See the model SQL header for the split rules.
+    columns:
+      - name: trip_instance_id
+        description: md5 of feed, vehicle, trip_id and first ping time.
+        data_tests: [unique, not_null]
+      - name: rt_start_time
+        description: RT start_time of the first ping, kept for audit. On kl it is a first-sighting stamp, not a dispatch time.
+      - name: touches_outage
+        description: The run continued across a feed outage instead of being split by it.
+      - name: is_observed_run
+        description: At least `min_pings` (5) pings and a position extent of at least `min_extent_m` (500 m). Gold uses only these.
+      - name: is_departure_observed
+        description: The feed was up for `session_gap_s` before the first ping, so the run start was probably seen.
+
+  - name: int_trip_instances
+    description: Runs with the static route and pattern resolved for their service date's static version.
+    columns:
+      - name: trip_instance_id
+        data_tests: [unique, not_null]
+      - name: route_id
+        description: Static route of the RT trip_id; else the RT route_id matched per feed_config; else the raw RT value.
+        data_tests: [not_null]
+      - name: trip_in_static
+        description: The RT trip_id exists in the static version of that date.
+
+  - name: int_first_departures
+    description: First-stop departure of each trip, once per distinct stop_times.txt content.
+    data_tests:
+      - unique_combination: {columns: [file_sha256, trip_id]}
+
+  - name: int_scheduled_departures
+    description: >
+      Scheduled departures per service date from its static version. Frequency windows are expanded
+      (generate_series over start..end by headway); timetable trips give their first-stop departure.
+    data_tests:
+      - unique_combination: {columns: [feed, service_date, trip_id, departure_secs]}
+    columns:
+      - name: sched_headway_s
+        description: Gap to the previous scheduled departure on the same route and pattern. NULL for the first one.
+
+seeds:
+  - name: feed_config
+    description: The only per-feed knowledge in dbt.
+    columns:
+      - name: feed
+        data_tests: [unique, not_null]
+      - name: has_realtime
+        description: The hoarder archives a realtime feed for it.
+      - name: rt_usable
+        description: >
+          False for ktmb: its realtime sends a fixed set of placeholder positions with vehicle.id equal to trip_id.
+          It stays in bronze and in fct_feed_gap only.
+      - name: rt_route_match
+        description: The static routes column that equals the RT route_id (route_id for kl, route_long_name for mrtfeeder).

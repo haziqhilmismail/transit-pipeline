@@ -1,0 +1,17 @@
+version: 2
+
+models:
+  - name: stg_rt__snapshots
+    description: Snapshots with typed times and the MYT service date (03:00 cutoff).
+  - name: stg_gtfs__routes
+    description: routes.txt rows per file content. `route_code` is the short name, else the long name (mrtfeeder keeps its code there).
+  - name: stg_gtfs__trips
+    description: trips.txt rows per file content. `pattern_id` = shape_id, else direction_id.
+  - name: stg_gtfs__stop_times
+    description: stop_times.txt rows per file content; times in seconds from service-day midnight.
+  - name: stg_gtfs__frequencies
+    description: frequencies.txt windows per file content.
+  - name: stg_gtfs__calendar
+    description: calendar.txt per file content. `runs_on_dow[1]` is Sunday.
+  - name: stg_gtfs__calendar_dates
+    description: calendar_dates.txt per file content (1 = added, 2 = removed).

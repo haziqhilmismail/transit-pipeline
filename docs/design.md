@@ -139,8 +139,9 @@ Each item is a change from the reviewed design (synthesis plus verdict), with th
     about 1.9 GB after the 7-day load.
 13. **Ports bind to 127.0.0.1.** The Airflow UI uses the simple auth manager with all users as admin, so it must not be on the LAN.
 14. **`make docs` writes `static_index.html` and does not serve it.** Port 8081 is in use on the host.
-15. **Memory limits:** Postgres 320 MB, API server 352 MB, scheduler 736 MB, DAG processor 192 MB (sum 1.6 GB).
-    The first limits gave the scheduler 576 MB, and a dbt build reached 557 MB. The API server used under 290 MB, so its limit went down.
+15. **Memory limits:** Postgres 320 MB, API server 336 MB, scheduler 704 MB, DAG processor 240 MB (sum 1.6 GB).
+    The first limits gave the scheduler 576 MB, and a dbt build reached 557 MB (later 599 MB). The DAG processor reached
+    191 MB to 225 MB (no OOM kill). The API server used under 290 MB, so its limit went down.
 16. **`is_departure_observed`.** True when the feed had no gap in the 30 min before the first ping, and the ping is
     at least 30 min after the service day starts.
 17. **dbt-core 1.12 and dbt-postgres 1.11.** dbt 1.10 prints a deprecation warning.

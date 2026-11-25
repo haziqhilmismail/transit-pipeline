@@ -70,20 +70,20 @@ services:
       test: ["CMD", "curl", "-fs", "http://localhost:8080/api/v2/monitor/health"]
       interval: 15s
       retries: 20
-    mem_limit: 352m
+    mem_limit: 336m
 
   airflow-scheduler:
     <<: *airflow
     command: scheduler
     depends_on: *after-init
     # LocalExecutor runs every task here, dbt included.
-    mem_limit: 736m
+    mem_limit: 704m
 
   airflow-dag-processor:
     <<: *airflow
     command: dag-processor
     depends_on: *after-init
-    mem_limit: 192m
+    mem_limit: 240m
 
 volumes:
   pgdata:

@@ -162,14 +162,15 @@ See [docs/design.md](docs/design.md) for the full design and the changes made du
 ## Memory
 
 The host has about 4.8 GB free. The stack has hard limits that add up to 1.6 GB: Postgres 320 MB,
-API server 352 MB, scheduler 736 MB, DAG processor 192 MB. The one-time `airflow-init` container has 512 MB and exits before the others start.
+API server 336 MB, scheduler 704 MB, DAG processor 240 MB. The one-time `airflow-init` container has 512 MB and exits before the others start.
 
 Measured with `docker stats` (2 s samples) on 2026-11-25:
 
 | Phase | Postgres | API server | Scheduler | DAG processor | Total at peak |
 |---|---|---|---|---|---|
-| Backfill load (3 feeds a day) | 248 MiB | 279 MiB | 445 MiB | 154 MiB | about 1.1 GiB |
+| Backfill load (3 feeds a day) | 300 MiB | 279 MiB | 482 MiB | 154 MiB | 1.15 GiB |
 | Full dbt build in Airflow (6 service dates) | 305 MiB | 276 MiB | 599 MiB | 162 MiB | 1.27 GiB |
+| Full dbt build again, final limits | 305 MiB | 278 MiB | 589 MiB | 225 MiB | 1.30 GiB |
 
 ## Credit and licence
 

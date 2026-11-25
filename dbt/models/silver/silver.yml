@@ -6,7 +6,7 @@ models:
       (feed, service date) pairs whose two UTC archives (D-1 and D) are both loaded, with the later load time.
       Gold shows complete dates only.
     data_tests:
-      - unique_combination: {columns: [feed, service_date]}
+      - unique_combination: {arguments: {columns: [feed, service_date]}}
 
   - name: int_active_services
     description: GTFS service_ids active on each complete service date, for every candidate static version.
@@ -14,7 +14,7 @@ models:
   - name: int_service_dates
     description: One row per complete (feed, service date) and the static version it is measured against.
     data_tests:
-      - unique_combination: {columns: [feed, service_date]}
+      - unique_combination: {arguments: {columns: [feed, service_date]}}
     columns:
       - name: version_id
         description: Latest static version fetched before the day ended that runs at least one service that day.
@@ -24,14 +24,14 @@ models:
   - name: int_feed_gaps
     description: Intervals with no non-empty snapshot for more than `feed_gap_s` (default 120 s).
     data_tests:
-      - unique_combination: {columns: [feed, gap_start_at]}
+      - unique_combination: {arguments: {columns: [feed, gap_start_at]}}
 
   - name: positions
     description: >
       One row per reported vehicle position (dedup of the same ping across snapshots; earliest snapshot kept).
       Feeds with `rt_usable = false` in feed_config (ktmb) are left out.
     data_tests:
-      - unique_combination: {columns: [feed, service_date, vehicle_id, vehicle_at]}
+      - unique_combination: {arguments: {columns: [feed, service_date, vehicle_id, vehicle_at]}}
     columns:
       - name: n_snapshots
         description: How many snapshots repeated this ping.
@@ -69,14 +69,14 @@ models:
   - name: int_first_departures
     description: First-stop departure of each trip, once per distinct stop_times.txt content.
     data_tests:
-      - unique_combination: {columns: [file_sha256, trip_id]}
+      - unique_combination: {arguments: {columns: [file_sha256, trip_id]}}
 
   - name: int_scheduled_departures
     description: >
       Scheduled departures per service date from its static version. Frequency windows are expanded
       (generate_series over start..end by headway); timetable trips give their first-stop departure.
     data_tests:
-      - unique_combination: {columns: [feed, service_date, trip_id, departure_secs]}
+      - unique_combination: {arguments: {columns: [feed, service_date, trip_id, departure_secs]}}
     columns:
       - name: sched_headway_s
         description: Gap to the previous scheduled departure on the same route and pattern. NULL for the first one.

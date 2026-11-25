@@ -8,6 +8,9 @@ unit_tests:
       (touches_outage); an invalid-timestamp ping in the silence is ignored. C: a trip_id change splits.
       D: six pings that never move fail the 500 m movement gate.
     model: int_trip_sessions
+    overrides:
+      macros:
+        is_incremental: false
     given:
       - input: ref('positions')
         rows:
@@ -48,3 +51,77 @@ unit_tests:
         - {"vehicle_id": "C", "trip_id": "T3", "departed_at": "2026-11-20 01:00:00+00", "n_pings": 2, "touches_outage": false, "is_observed_run": false}
         - {"vehicle_id": "C", "trip_id": "T4", "departed_at": "2026-11-20 01:02:00+00", "n_pings": 1, "touches_outage": false, "is_observed_run": false}
         - {"vehicle_id": "D", "trip_id": "T5", "departed_at": "2026-11-20 01:00:00+00", "n_pings": 6, "touches_outage": false, "is_observed_run": false}
+
+  - name: scheduled_departures_both_kinds
+    description: >
+      A frequency window 06:00 to 19:30 every 1,800 s gives 27 departures (end exclusive). A timetable route with
+      first-stop departures 06:00, 06:20, 06:50 gives headways null, 1200, 1800. A trip whose service is not active is left out.
+    model: int_scheduled_departures
+    overrides:
+      macros:
+        is_incremental: false
+    given:
+      - input: ref('int_service_dates')
+        rows:
+        - {"feed": "freq", "service_date": "2026-11-20", "version_id": "v1"}
+        - {"feed": "tt", "service_date": "2026-11-20", "version_id": "v1"}
+      - input: source('bronze', 'static_version_file')
+        rows:
+        - {"feed": "freq", "version_id": "v1", "file_name": "trips.txt", "file_sha256": "f_trips"}
+        - {"feed": "freq", "version_id": "v1", "file_name": "frequencies.txt", "file_sha256": "f_freq"}
+        - {"feed": "freq", "version_id": "v1", "file_name": "stop_times.txt", "file_sha256": "f_st"}
+        - {"feed": "tt", "version_id": "v1", "file_name": "trips.txt", "file_sha256": "t_trips"}
+        - {"feed": "tt", "version_id": "v1", "file_name": "stop_times.txt", "file_sha256": "t_st"}
+      - input: ref('int_active_services')
+        rows:
+        - {"feed": "freq", "service_date": "2026-11-20", "version_id": "v1", "service_id": "weekday"}
+        - {"feed": "tt", "service_date": "2026-11-20", "version_id": "v1", "service_id": "weekday"}
+      - input: ref('stg_gtfs__trips')
+        rows:
+        - {"file_sha256": "f_trips", "trip_id": "F1", "route_id": "R1", "service_id": "weekday", "pattern_id": "S1"}
+        - {"file_sha256": "t_trips", "trip_id": "T1", "route_id": "R2", "service_id": "weekday", "pattern_id": "0"}
+        - {"file_sha256": "t_trips", "trip_id": "T2", "route_id": "R2", "service_id": "weekday", "pattern_id": "0"}
+        - {"file_sha256": "t_trips", "trip_id": "T3", "route_id": "R2", "service_id": "weekday", "pattern_id": "0"}
+        - {"file_sha256": "t_trips", "trip_id": "T9", "route_id": "R2", "service_id": "weekend", "pattern_id": "0"}
+      - input: ref('stg_gtfs__frequencies')
+        rows:
+        - {"file_sha256": "f_freq", "trip_id": "F1", "start_secs": 21600, "end_secs": 70200, "headway_secs": 1800}
+      - input: ref('int_first_departures')
+        rows:
+        - {"file_sha256": "f_st", "trip_id": "F1", "departure_secs": 21600}
+        - {"file_sha256": "t_st", "trip_id": "T1", "departure_secs": 21600}
+        - {"file_sha256": "t_st", "trip_id": "T2", "departure_secs": 22800}
+        - {"file_sha256": "t_st", "trip_id": "T3", "departure_secs": 24600}
+        - {"file_sha256": "t_st", "trip_id": "T9", "departure_secs": 23000}
+    expect:
+      rows:
+        - {"feed": "freq", "trip_id": "F1", "departure_secs": 21600, "sched_headway_s": null}
+        - {"feed": "freq", "trip_id": "F1", "departure_secs": 23400, "sched_headway_s": 1800}
+        - {"feed": "freq", "trip_id": "F1", "departure_secs": 25200, "sched_headway_s": 1800}
+        - {"feed": "freq", "trip_id": "F1", "departure_secs": 27000, "sched_headway_s": 1800}
+        - {"feed": "freq", "trip_id": "F1", "departure_secs": 28800, "sched_headway_s": 1800}
+        - {"feed": "freq", "trip_id": "F1", "departure_secs": 30600, "sched_headway_s": 1800}
+        - {"feed": "freq", "trip_id": "F1", "departure_secs": 32400, "sched_headway_s": 1800}
+        - {"feed": "freq", "trip_id": "F1", "departure_secs": 34200, "sched_headway_s": 1800}
+        - {"feed": "freq", "trip_id": "F1", "departure_secs": 36000, "sched_headway_s": 1800}
+        - {"feed": "freq", "trip_id": "F1", "departure_secs": 37800, "sched_headway_s": 1800}
+        - {"feed": "freq", "trip_id": "F1", "departure_secs": 39600, "sched_headway_s": 1800}
+        - {"feed": "freq", "trip_id": "F1", "departure_secs": 41400, "sched_headway_s": 1800}
+        - {"feed": "freq", "trip_id": "F1", "departure_secs": 43200, "sched_headway_s": 1800}
+        - {"feed": "freq", "trip_id": "F1", "departure_secs": 45000, "sched_headway_s": 1800}
+        - {"feed": "freq", "trip_id": "F1", "departure_secs": 46800, "sched_headway_s": 1800}
+        - {"feed": "freq", "trip_id": "F1", "departure_secs": 48600, "sched_headway_s": 1800}
+        - {"feed": "freq", "trip_id": "F1", "departure_secs": 50400, "sched_headway_s": 1800}
+        - {"feed": "freq", "trip_id": "F1", "departure_secs": 52200, "sched_headway_s": 1800}
+        - {"feed": "freq", "trip_id": "F1", "departure_secs": 54000, "sched_headway_s": 1800}
+        - {"feed": "freq", "trip_id": "F1", "departure_secs": 55800, "sched_headway_s": 1800}
+        - {"feed": "freq", "trip_id": "F1", "departure_secs": 57600, "sched_headway_s": 1800}
+        - {"feed": "freq", "trip_id": "F1", "departure_secs": 59400, "sched_headway_s": 1800}
+        - {"feed": "freq", "trip_id": "F1", "departure_secs": 61200, "sched_headway_s": 1800}
+        - {"feed": "freq", "trip_id": "F1", "departure_secs": 63000, "sched_headway_s": 1800}
+        - {"feed": "freq", "trip_id": "F1", "departure_secs": 64800, "sched_headway_s": 1800}
+        - {"feed": "freq", "trip_id": "F1", "departure_secs": 66600, "sched_headway_s": 1800}
+        - {"feed": "freq", "trip_id": "F1", "departure_secs": 68400, "sched_headway_s": 1800}
+        - {"feed": "tt", "trip_id": "T1", "departure_secs": 21600, "sched_headway_s": null}
+        - {"feed": "tt", "trip_id": "T2", "departure_secs": 22800, "sched_headway_s": 1200}
+        - {"feed": "tt", "trip_id": "T3", "departure_secs": 24600, "sched_headway_s": 1800}

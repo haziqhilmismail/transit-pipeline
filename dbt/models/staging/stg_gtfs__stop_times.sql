@@ -1,3 +1,5 @@
+{{ config(materialized='view') }}
+
 select
     file_sha256,
     {{ field('trip_id') }} as trip_id,

@@ -19,7 +19,8 @@ models:
   transit:
     staging:
       +schema: silver
-      +materialized: view
+      # Small GTFS files are joined many times; as views each use would rescan the 2M-row gtfs_row.
+      +materialized: table
     silver:
       +schema: silver
       +materialized: table

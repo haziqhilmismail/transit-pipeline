@@ -4,7 +4,7 @@ models:
   - name: dim_route
     description: Every route in any loaded static version (latest attributes), plus routes seen only in realtime.
     data_tests:
-      - unique_combination: {columns: [feed, route_id]}
+      - unique_combination: {arguments: {columns: [feed, route_id]}}
     columns:
       - name: route_code
         description: The code a rider sees (short name, else long name).
@@ -84,14 +84,14 @@ models:
   - name: fct_route_hour_activity
     description: Observed runs and vehicles active per route and MYT clock hour.
     data_tests:
-      - unique_combination: {columns: [feed, route_id, service_date, hour_start_myt]}
+      - unique_combination: {arguments: {columns: [feed, route_id, service_date, hour_start_myt]}}
 
   - name: fct_route_day
     description: >
       One route on one complete service date. `coverage` is a lower bound on delivered service: the realtime
       feed does not track every bus, so read it as feed coverage, not operator performance.
     data_tests:
-      - unique_combination: {columns: [feed, service_date, route_id]}
+      - unique_combination: {arguments: {columns: [feed, service_date, route_id]}}
     columns:
       - name: feed
         data_type: text
@@ -123,7 +123,7 @@ models:
   - name: fct_feed_gap
     description: Feed gaps over `feed_gap_s` (120 s), empty snapshots counted as gaps, split at service-day bounds.
     data_tests:
-      - unique_combination: {columns: [feed, service_date, gap_start_at]}
+      - unique_combination: {arguments: {columns: [feed, service_date, gap_start_at]}}
     columns:
       - name: gap_s_in_day
         description: Part of the gap inside this service day.

@@ -1,8 +1,9 @@
+import json
+import shlex
 from datetime import timedelta
 
-from airflow.sdk import Asset, Param, TriggerRule, dag, task
-
-BRONZE = Asset("transit_bronze")
+from airflow.sdk import Param, TriggerRule, dag, task
+from lib.assets import BRONZE
 
 DBT = "cd /opt/airflow/dbt && dbt"
 
@@ -20,10 +21,8 @@ DBT = "cd /opt/airflow/dbt && dbt"
 def transit_transform():
     @task.bash
     def dbt_build(params=None) -> str:
-        if params["start_date"] and params["end_date"]:
-            window = f"{{start_date: '{params['start_date']}', end_date: '{params['end_date']}'}}"
-            return f"{DBT} build --vars \"{window}\""
-        return f"{DBT} build"
+        window = {"start_date": params["start_date"], "end_date": params["end_date"]}
+        return f"{DBT} build --vars {shlex.quote(json.dumps(window))}"
 
     @task.bash(trigger_rule=TriggerRule.ALL_DONE, retries=0)
     def source_freshness() -> str:

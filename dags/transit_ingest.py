@@ -1,9 +1,8 @@
 from datetime import datetime, timedelta
 
-from airflow.sdk import Asset, dag, task
+from airflow.sdk import TriggerRule, dag, task
 from airflow.timetables.interval import CronDataIntervalTimetable
-
-BRONZE = Asset("transit_bronze")
+from lib.assets import BRONZE
 
 
 @dag(
@@ -20,9 +19,12 @@ def transit_ingest():
     def load_static() -> str:
         return "transit-load static"
 
-    @task.bash(outlets=[BRONZE])
-    def load_realtime(data_interval_start=None) -> str:
-        return f"transit-load realtime --date {data_interval_start:%Y-%m-%d}"
+    # Realtime does not need static to load; static only runs first so dbt sees both.
+    @task.bash(outlets=[BRONZE], trigger_rule=TriggerRule.ALL_DONE)
+    def load_realtime(dag_run=None, data_interval_start=None) -> str:
+        if dag_run.run_type == "backfill":
+            return f"transit-load realtime --date {data_interval_start:%Y-%m-%d}"
+        return "transit-load realtime"
 
     load_static() >> load_realtime()
 

@@ -7,5 +7,5 @@ USER airflow
 COPY --chown=airflow: loader /tmp/loader
 RUN uv venv /opt/transit \
  && uv pip install --python /opt/transit/bin/python --no-cache \
-      "dbt-core~=1.12.0" "dbt-postgres>=1.9" "/tmp/loader[test]"
+      "dbt-core~=1.12.0" "dbt-postgres>=1.9" /tmp/loader
 ENV PATH="${PATH}:/opt/transit/bin"

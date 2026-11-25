@@ -37,8 +37,8 @@ flowchart LR
     T -- "dbt build" --> S --> G
 ```
 
-- `loader/` is a Python package with the `transit-load` CLI. It loads one closed archive day, or every new static version.
-- `dags/transit_ingest.py` loads static versions, then the archive day that closed before the run.
+- `loader/` is a Python package with the `transit-load` CLI. It loads closed archive days and new static versions.
+- `dags/transit_ingest.py` loads new static versions, then every closed archive day that is not loaded yet.
 - `dags/transit_transform.py` runs `dbt build`, then `dbt source freshness`.
 - `dbt/` holds the silver and gold models, the tests, and the docs.
 
@@ -49,6 +49,8 @@ You need Docker with Compose, `make`, and `uv` (for the loader tests).
 1. Copy `.env.example` to `.env`.
 2. Set `TRANSIT_DATA` to the folder that holds the `realtime/` and `static/` folders.
 3. Set `AIRFLOW_UID` to your user id (`id -u`). Set a new `POSTGRES_PASSWORD` and `AIRFLOW_JWT_SECRET`.
+   Use only letters, digits and `-._~` in the password, because it goes into connection URLs.
+   Set `TRANSIT_EARLIEST_DATE` to the first archive day that the daily load must load.
 4. Start the stack:
 
    ```sh
@@ -78,23 +80,26 @@ You need Docker with Compose, `make`, and `uv` (for the loader tests).
    ```
 
 After `make up`, the daily load needs no action. `transit_ingest` runs at 00:30 UTC. The source closes each UTC
-day at about 00:08 UTC. If the archive is not there yet, the task fails and Airflow tries again 3 times, 20 minutes apart.
+day at about 00:08 UTC. Each run loads every closed archive day from `TRANSIT_EARLIEST_DATE` that is not loaded yet.
+So a day that a failed or missed run did not load is loaded by the next run. The loader never reads the open day of
+today. A bad static zip is logged and skipped, and the realtime load runs also when the static load fails.
 
 ### Other commands
 
 | Command | What it does |
 |---|---|
 | `make test` | Runs the loader tests and the dbt unit tests. The stack must be up, and dbt must have built once. |
-| `make dbt-build` | Runs `dbt build`. Add `FROM=YYYY-MM-DD TO=YYYY-MM-DD` to rebuild that range of service dates. |
+| `make dbt-build` | Runs `dbt build`. Add `FROM=YYYY-MM-DD TO=YYYY-MM-DD` to rebuild that range of service dates. Set both or neither. |
 | `make docs` | Writes the dbt docs to `dbt/target/static_index.html`. |
-| `make logs` | Shows the container logs. |
+| `make logs` | Shows the container logs. Airflow task logs are in the `airflow-logs` volume and in the UI. |
 | `make stats` | Shows the memory use of each container. |
 | `make down` | Stops the stack. The Postgres volume stays. |
 
-To load one day by hand, run the same command that the DAG runs:
+To reload one day by hand, or to load the days that are not loaded yet:
 
 ```sh
 docker compose exec airflow-scheduler transit-load realtime --date 2026-11-24
+docker compose exec airflow-scheduler transit-load realtime
 docker compose exec airflow-scheduler transit-load static
 ```
 

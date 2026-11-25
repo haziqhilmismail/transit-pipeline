@@ -64,6 +64,7 @@ Loads are idempotent by replacement. `load_realtime` deletes and copies one (fee
 ## 3. Rules
 
 - **Service date.** `((ts at time zone 'Asia/Kuala_Lumpur') - interval '3 hours')::date`, from the snapshot time.
+  The cutoff is the var `service_day_cutoff_h`, and the time zone appears only in `macros/time.sql`.
 - **Static version for date D.** The latest version fetched before D+1 03:00 MYT that runs at least one service on D.
   If no version runs a service, the latest version. A singular test fails if a realtime date has no departures.
 - **Dedup.** One row per (feed, service_date, vehicle_id, vehicle_ts). The earliest snapshot wins.
@@ -86,28 +87,33 @@ All thresholds are dbt vars in `dbt/dbt_project.yml`.
 ## 4. Orchestration
 
 - `transit_ingest`: `CronDataIntervalTimetable("30 0 * * *")`, `catchup=False`, 3 retries 20 min apart.
-  `load_static >> load_realtime`. `load_realtime` loads the archive of its data interval start and emits the asset `transit_bronze`.
-  Backfill uses `airflow backfill create` (`make backfill`).
+  `load_static >> load_realtime`, with `load_realtime` on trigger rule `all_done`, so a static failure does not stop it.
+  `load_realtime` runs `transit-load realtime` without a date: it loads every closed archive day (`.tar.xz`, before
+  today UTC, from `TRANSIT_EARLIEST_DATE`) that has no `rt_archive` row. It emits the asset `transit_bronze`.
+  Backfill runs (`make backfill`, `airflow backfill create`) pass `--date` of the data interval start and replace that day.
 - `transit_transform`: scheduled on `transit_bronze`. `dbt_build`, then `source_freshness` (trigger rule `all_done`,
   so a failed build still gets a freshness check, and the freshness check never blocks the build).
 - The dbt window: with vars `start_date`/`end_date`, that range. Without them, the macro `transform_window` reads
   `silver.int_complete_dates` and `silver.build_log`. It returns the range of complete dates never built, or loaded
   after their last build. Each windowed model deletes the window in a pre-hook, then appends. So a rebuild that gives 0
-  rows still removes old rows. The `on-run-end` hook writes build stamps only when no node failed and all
-  three windowed models ran.
+  rows still removes old rows. The windowed models live in `models/silver/windowed/`, which sets the tag `windowed`,
+  the incremental config and the pre-hook once. The `on-run-end` hook stamps the same window, and only when no node
+  failed and every `windowed` model ran. Setting only one of `start_date` and `end_date` is an error.
 - `AIRFLOW__CORE__PARALLELISM=1`: one task runs at a time across both DAGs.
 
 ## 5. Tests
 
 - Loader (pytest): protobuf decode with absent fields, corrupt payloads, the open-archive rule, the zip filter, the CSV
-  BOM and CRLF, and two Postgres tests: a second load gives the same rows, and a failed reload keeps the previous day.
+  BOM and CRLF, and Postgres tests: a second load gives the same rows, a failed reload keeps the previous day, a load
+  without a date loads each closed day once from the earliest date, bad static zips are skipped, and bad or repeated
+  member names count as bad snapshots.
 - dbt unit tests: sessionization (jitter, re-stamp, silence while the feed is up, silence inside an outage, an
   invalid timestamp, a trip change, the movement gate) and scheduled departures (frequency expansion, timetable headways,
-  inactive service).
+  inactive service), and the static version choice (a newer version with no service on the date loses).
 - dbt data tests: unique keys, not null, relationships of `fct_trip` and `fct_route_day` to `dim_route`,
-  accepted values, contracts on `fct_trip` and `fct_route_day`, and 3 singular tests (static calendar agrees with the
+  accepted values, contracts on `fct_trip` and `fct_route_day`, and 4 singular tests (static calendar agrees with the
   service date for over 99% of runs; every realtime date has departures; at most 15% of runs have an RT `trip_id`
-  missing from static).
+  missing from static; a service date spans UTC archives D-1 and D, as `int_complete_dates` and `positions` assume).
 - Source freshness on `rt_snapshot.fetched_at` (warn 27 h, error 50 h) and `static_version.fetched_at` (warn 3 days, error 8 days).
 
 ## 6. Implementation reconciliation
@@ -145,6 +151,24 @@ Each item is a change from the reviewed design (synthesis plus verdict), with th
 16. **`is_departure_observed`.** True when the feed had no gap in the 30 min before the first ping, and the ping is
     at least 30 min after the service day starts.
 17. **dbt-core 1.12 and dbt-postgres 1.11.** dbt 1.10 prints a deprecation warning.
+
+18. **Self-healing ingest.** The daily run loads what is missing instead of one fixed date, like `load_static`.
+    `TRANSIT_EARLIEST_DATE` keeps a new stack from loading all 52 archive days.
+19. **Bad input does not stop the pipeline.** A static zip that is not a zip, or has no fetch time in its name, is
+    logged and skipped (`StaticLoadResult.versions_bad`). A `.pb` member with no fetch time in its name, or a
+    second member with the same fetch time, counts as a bad snapshot. Malformed GTFS times, dates and integers become
+    NULL in staging, and a frequency row with a headway of 0 is ignored.
+20. **`int_version_files`.** One row per static version, one sha256 column per GTFS file. No model filters on `file_name`.
+21. **`trip_instance_id` includes the service date.** The same vehicle, trip and first ping cannot repeat in two dates now.
+22. **The window reads `int_complete_dates` through the dbt graph, not `ref()`.** The window macros run only at
+    execution time, so `ref()` there needs a `depends_on` hint in every windowed model, every unit test of one, and the hook.
+23. **`int_service_dates` carries `has_realtime` and `rt_usable`.** Other models do not join `feed_config` for them.
+    The tie-break to a version that runs a service has a unit test (the mrtfeeder calendar starts the day after each fetch).
+24. **Separate venvs for dbt (`/opt/dbt`) and the loader (`/opt/loader`).** The loader installs from `uv.lock`, which
+    pins protobuf 7, and dbt needs protobuf 6.
+25. **Airflow task logs use the named volume `airflow-logs`.** A bind mount of `./logs` on a new clone is owned by root,
+    and Airflow cannot write to it.
+26. **`agency.txt` and `stops.txt` are not loaded any more.** No model reads them. Rows of versions loaded before stay in bronze.
 
 ## 7. Open points
 

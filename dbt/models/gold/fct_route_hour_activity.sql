@@ -7,8 +7,8 @@ select
     count(*) as active_trips
 from {{ ref('int_trip_instances') }} r
 cross join generate_series(
-    date_trunc('hour', r.departed_at at time zone 'Asia/Kuala_Lumpur'),
-    r.last_seen_at at time zone 'Asia/Kuala_Lumpur',
+    date_trunc('hour', {{ at_myt('r.departed_at') }}),
+    {{ at_myt('r.last_seen_at') }},
     interval '1 hour'
 ) hour_start_myt
 where r.is_observed_run

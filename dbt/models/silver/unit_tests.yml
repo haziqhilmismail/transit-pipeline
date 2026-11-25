@@ -65,13 +65,10 @@ unit_tests:
         rows:
         - {"feed": "freq", "service_date": "2026-11-20", "version_id": "v1"}
         - {"feed": "tt", "service_date": "2026-11-20", "version_id": "v1"}
-      - input: source('bronze', 'static_version_file')
+      - input: ref('int_version_files')
         rows:
-        - {"feed": "freq", "version_id": "v1", "file_name": "trips.txt", "file_sha256": "f_trips"}
-        - {"feed": "freq", "version_id": "v1", "file_name": "frequencies.txt", "file_sha256": "f_freq"}
-        - {"feed": "freq", "version_id": "v1", "file_name": "stop_times.txt", "file_sha256": "f_st"}
-        - {"feed": "tt", "version_id": "v1", "file_name": "trips.txt", "file_sha256": "t_trips"}
-        - {"feed": "tt", "version_id": "v1", "file_name": "stop_times.txt", "file_sha256": "t_st"}
+        - {"feed": "freq", "version_id": "v1", "trips_sha256": "f_trips", "frequencies_sha256": "f_freq", "stop_times_sha256": "f_st"}
+        - {"feed": "tt", "version_id": "v1", "trips_sha256": "t_trips", "stop_times_sha256": "t_st"}
       - input: ref('int_active_services')
         rows:
         - {"feed": "freq", "service_date": "2026-11-20", "version_id": "v1", "service_id": "weekday"}
@@ -125,3 +122,38 @@ unit_tests:
         - {"feed": "tt", "trip_id": "T1", "departure_secs": 21600, "sched_headway_s": null}
         - {"feed": "tt", "trip_id": "T2", "departure_secs": 22800, "sched_headway_s": 1200}
         - {"feed": "tt", "trip_id": "T3", "departure_secs": 24600, "sched_headway_s": 1800}
+
+  - name: service_date_skips_a_newer_version_with_no_service
+    description: >
+      The mrtfeeder calendar starts the day after each fetch. On 2026-11-20 the newest candidate v2 runs nothing,
+      so the date uses v1. On 2026-11-21 v2 runs a service and wins. A feed with no active version keeps its newest one.
+    model: int_service_dates
+    given:
+      - input: ref('int_complete_dates')
+        rows:
+        - {"feed": "feeder", "service_date": "2026-11-20"}
+        - {"feed": "feeder", "service_date": "2026-11-21"}
+        - {"feed": "empty", "service_date": "2026-11-20"}
+      - input: ref('feed_config')
+        rows:
+        - {"feed": "feeder", "has_realtime": true, "rt_usable": true}
+        - {"feed": "empty", "has_realtime": false, "rt_usable": false}
+      - input: ref('int_static_candidates')
+        format: sql
+        rows: |
+          select 'feeder' as feed, '2026-11-20'::date as service_date, 'v1' as version_id, '2026-11-19 01:00+00'::timestamptz as fetched_at
+          union all select 'feeder', '2026-11-20', 'v2', '2026-11-20 01:00+00'
+          union all select 'feeder', '2026-11-21', 'v1', '2026-11-19 01:00+00'
+          union all select 'feeder', '2026-11-21', 'v2', '2026-11-20 01:00+00'
+          union all select 'empty', '2026-11-20', 'e1', '2026-11-19 01:00+00'
+          union all select 'empty', '2026-11-20', 'e2', '2026-11-20 01:00+00'
+      - input: ref('int_active_services')
+        rows:
+        - {"feed": "feeder", "service_date": "2026-11-20", "version_id": "v1", "service_id": "weekday"}
+        - {"feed": "feeder", "service_date": "2026-11-21", "version_id": "v1", "service_id": "weekday"}
+        - {"feed": "feeder", "service_date": "2026-11-21", "version_id": "v2", "service_id": "weekday"}
+    expect:
+      rows:
+        - {"feed": "feeder", "service_date": "2026-11-20", "version_id": "v1", "has_service": true, "rt_usable": true}
+        - {"feed": "feeder", "service_date": "2026-11-21", "version_id": "v2", "has_service": true, "rt_usable": true}
+        - {"feed": "empty", "service_date": "2026-11-20", "version_id": "e2", "has_service": false, "rt_usable": false}

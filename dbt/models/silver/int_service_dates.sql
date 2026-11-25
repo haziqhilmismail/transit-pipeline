@@ -17,7 +17,10 @@ select distinct on (d.feed, d.service_date)
     d.loaded_at,
     c.version_id,
     c.fetched_at as version_fetched_at,
-    coalesce(c.has_service, false) as has_service
+    coalesce(c.has_service, false) as has_service,
+    f.has_realtime,
+    f.rt_usable
 from {{ ref('int_complete_dates') }} d
+join {{ ref('feed_config') }} f on f.feed = d.feed
 left join candidates c on c.feed = d.feed and c.service_date = d.service_date
 order by d.feed, d.service_date, c.has_service desc nulls last, c.fetched_at desc nulls last

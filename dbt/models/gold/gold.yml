@@ -80,6 +80,9 @@ models:
           - accepted_values:
               arguments:
                 values: [unscheduled, low_coverage, first_of_day, bunched, on_headway, gapped]
+      - name: has_headway_class
+        data_type: boolean
+        description: headway_class is bunched, on_headway or gapped. fct_route_day counts and ranks only these runs.
 
   - name: fct_route_hour_activity
     description: Observed runs and vehicles active per route and MYT clock hour.
@@ -110,7 +113,7 @@ models:
         description: observed_trips / scheduled_trips. NULL when nothing was scheduled. Can pass 1.
       - name: headway_runs
         data_type: int
-        description: Runs with a headway class of bunched, on_headway or gapped.
+        description: Runs with `fct_trip.has_headway_class`.
       - name: pct_on_headway
         data_type: numeric
         description: Share of headway_runs that are on_headway. NULL when no run qualifies (often, given coverage).

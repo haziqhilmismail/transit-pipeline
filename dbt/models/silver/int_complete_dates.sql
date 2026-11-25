@@ -4,6 +4,7 @@ with archives as (
     select feed, archive_date, loaded_at from {{ source('bronze', 'rt_archive') }}
 ),
 
+-- Service date D spans UTC archives D-1 and D (test assert_service_day_spans_archives_d_minus_1_and_d).
 realtime as (
     select cur.feed, cur.archive_date as service_date, greatest(cur.loaded_at, prev.loaded_at) as loaded_at
     from archives cur

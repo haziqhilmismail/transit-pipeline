@@ -8,6 +8,11 @@ models:
     data_tests:
       - unique_combination: {arguments: {columns: [feed, service_date]}}
 
+  - name: int_version_files
+    description: One row per static version, with the content sha256 of each GTFS file it holds (NULL when absent).
+    data_tests:
+      - unique_combination: {arguments: {columns: [feed, version_id]}}
+
   - name: int_active_services
     description: GTFS service_ids active on each complete service date, for every candidate static version.
 
@@ -20,6 +25,10 @@ models:
         description: Latest static version fetched before the day ended that runs at least one service that day.
       - name: has_service
         description: False when no candidate version runs any service on the date.
+      - name: has_realtime
+        description: From feed_config.
+      - name: rt_usable
+        description: From feed_config. Run models read only these dates.
 
   - name: int_feed_gaps
     description: Intervals with no non-empty snapshot for more than `feed_gap_s` (default 120 s).
@@ -44,7 +53,7 @@ models:
     description: Vehicle pings sessionized into runs. See the model SQL header for the split rules.
     columns:
       - name: trip_instance_id
-        description: md5 of feed, vehicle, trip_id and first ping time.
+        description: md5 of feed, service date, vehicle, trip_id and first ping time.
         data_tests: [unique, not_null]
       - name: rt_start_time
         description: RT start_time of the first ping, kept for audit. On kl it is a first-sighting stamp, not a dispatch time.

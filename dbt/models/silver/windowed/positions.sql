@@ -1,15 +1,12 @@
 {{ config(
-    materialized='incremental',
-    incremental_strategy='append',
-    pre_hook="{{ window_delete() }}",
     post_hook="create index if not exists positions_vehicle on {{ this }} (feed, service_date, vehicle_id, vehicle_at)",
 ) }}
 
 with days as (
-    select d.feed, d.service_date
-    from {{ ref('int_service_dates') }} d
-    join {{ ref('feed_config') }} c on c.feed = d.feed and c.rt_usable
-    {% if is_incremental() %}where {{ window_filter('d.service_date') }}{% endif %}
+    select feed, service_date
+    from {{ ref('int_service_dates') }}
+    where rt_usable
+    {% if is_incremental() %}and {{ window_filter('service_date') }}{% endif %}
 ),
 
 scoped as (
@@ -45,6 +42,10 @@ select
     latitude,
     longitude,
     abs(vehicle_ts - extract(epoch from fetched_at)) <= {{ var('valid_ts_skew_s') }} as is_valid_ts,
-    coalesce(latitude between 0.8 and 7.5 and longitude between 99.5 and 104.6, false) as is_valid_position
+    {% set bbox = var('valid_bbox') -%}
+    coalesce(
+        latitude between {{ bbox.min_lat }} and {{ bbox.max_lat }} and longitude between {{ bbox.min_lon }} and {{ bbox.max_lon }},
+        false
+    ) as is_valid_position
 from ranked
 where copy_num = 1

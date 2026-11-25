@@ -1,7 +1,7 @@
 with days as (
-    select d.feed, d.service_date, {{ service_day_start('d.service_date') }} as day_start
-    from {{ ref('int_service_dates') }} d
-    join {{ ref('feed_config') }} c on c.feed = d.feed and c.has_realtime
+    select feed, service_date, {{ service_day_start('service_date') }} as day_start
+    from {{ ref('int_service_dates') }}
+    where has_realtime
 )
 
 select

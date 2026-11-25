@@ -3,7 +3,7 @@ export
 
 COMPOSE := docker compose
 EXEC := $(COMPOSE) exec -T airflow-scheduler
-DBT = $(EXEC) bash -c 'cd /opt/airflow/dbt && dbt $(1)'
+DBT = $(COMPOSE) exec -T -w /opt/airflow/dbt airflow-scheduler dbt $(1)
 HOST_DSN := postgresql://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@127.0.0.1:5442/warehouse
 comma := ,
 
@@ -26,7 +26,7 @@ backfill:
 		--max-active-runs 1 --reprocess-behavior completed
 
 dbt-build:
-	$(call DBT,build $(if $(FROM),--vars \"{start_date: $(FROM)$(comma) end_date: $(TO)}\"))
+	$(call DBT,build --vars '{"start_date": "$(FROM)"$(comma) "end_date": "$(TO)"}')
 
 docs:
 	$(call DBT,docs generate --static)

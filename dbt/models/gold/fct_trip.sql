@@ -50,6 +50,20 @@ scored as (
         round(m.observed_headway_s::numeric / nullif(m.sched_headway_s, 0), 3) as headway_ratio
     from matched m
     join coverage c using (feed, service_date, route_id, pattern_id)
+),
+
+classified as (
+    select
+        *,
+        case
+            when matched_departure_at is null then 'unscheduled'
+            when coalesce(coverage, 0) < {{ var('coverage_threshold') }} then 'low_coverage'
+            when headway_ratio is null then 'first_of_day'
+            when headway_ratio < 0.5 then 'bunched'
+            when headway_ratio <= 1.5 then 'on_headway'
+            else 'gapped'
+        end as headway_class
+    from scored
 )
 
 select
@@ -72,12 +86,6 @@ select
     headway_ratio::numeric as headway_ratio,
     scheduled_departures::int as pattern_scheduled_departures,
     coverage::numeric as pattern_coverage,
-    (case
-        when matched_departure_at is null then 'unscheduled'
-        when coalesce(coverage, 0) < {{ var('coverage_threshold') }} then 'low_coverage'
-        when headway_ratio is null then 'first_of_day'
-        when headway_ratio < 0.5 then 'bunched'
-        when headway_ratio <= 1.5 then 'on_headway'
-        else 'gapped'
-    end)::text as headway_class
-from scored
+    headway_class::text as headway_class,
+    (headway_class in ('bunched', 'on_headway', 'gapped'))::boolean as has_headway_class
+from classified

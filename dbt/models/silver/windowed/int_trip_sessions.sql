@@ -1,9 +1,3 @@
-{{ config(
-    materialized='incremental',
-    incremental_strategy='append',
-    pre_hook="{{ window_delete() }}",
-) }}
-
 with pings as (
     select feed, service_date, vehicle_id, vehicle_at, trip_id, rt_route_id, rt_start_time, rt_direction_id, latitude, longitude
     from {{ ref('positions') }}
@@ -78,7 +72,7 @@ runs as (
 )
 
 select
-    md5(concat_ws('|', r.feed, r.vehicle_id, r.trip_id, r.departed_at)) as trip_instance_id,
+    md5(concat_ws('|', r.feed, r.service_date, r.vehicle_id, r.trip_id, r.departed_at)) as trip_instance_id,
     r.feed,
     r.service_date,
     r.vehicle_id,

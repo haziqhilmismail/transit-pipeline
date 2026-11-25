@@ -13,18 +13,25 @@ vars:
   feed_gap_s: 120
   coverage_threshold: 0.9
   headway_match_tolerance_s: 1800
+  service_day_cutoff_h: 3
+  max_unresolved_trip_share: 0.15
+  # Peninsular Malaysia; ktmb and mrtfeeder send positions near (0, 0).
+  valid_bbox: {min_lat: 0.8, max_lat: 7.5, min_lon: 99.5, max_lon: 104.6}
 
 models:
   transit:
+    +materialized: table
     staging:
       +schema: silver
-      +materialized: table
     silver:
       +schema: silver
-      +materialized: table
+      windowed:
+        +tags: windowed
+        +materialized: incremental
+        +incremental_strategy: append
+        +pre-hook: "{{ window_delete() }}"
     gold:
       +schema: gold
-      +materialized: table
 
 seeds:
   transit:

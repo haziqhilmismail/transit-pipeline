@@ -7,9 +7,8 @@ with static_routes as (
         r.route_long_name,
         r.route_type
     from {{ source('bronze', 'static_version') }} v
-    join {{ source('bronze', 'static_version_file') }} f
-        on f.feed = v.feed and f.version_id = v.version_id and f.file_name = 'routes.txt'
-    join {{ ref('stg_gtfs__routes') }} r on r.file_sha256 = f.file_sha256
+    join {{ ref('int_version_files') }} f on f.feed = v.feed and f.version_id = v.version_id
+    join {{ ref('stg_gtfs__routes') }} r on r.file_sha256 = f.routes_sha256
     order by v.feed, r.route_id, v.fetched_at desc
 )
 

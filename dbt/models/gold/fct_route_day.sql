@@ -1,9 +1,9 @@
 {{ config(contract={'enforced': true}) }}
 
 with days as (
-    select d.feed, d.service_date
-    from {{ ref('int_service_dates') }} d
-    join {{ ref('feed_config') }} c on c.feed = d.feed and c.rt_usable
+    select feed, service_date
+    from {{ ref('int_service_dates') }}
+    where rt_usable
 ),
 
 scheduled as (
@@ -18,10 +18,10 @@ observed as (
         service_date,
         route_id,
         count(*) as observed_trips,
-        count(*) filter (where headway_class in ('bunched', 'on_headway', 'gapped')) as headway_runs,
+        count(*) filter (where has_headway_class) as headway_runs,
         count(*) filter (where headway_class = 'on_headway') as on_headway_runs,
         percentile_cont(0.5) within group (order by headway_ratio)
-            filter (where headway_class in ('bunched', 'on_headway', 'gapped')) as median_headway_ratio
+            filter (where has_headway_class) as median_headway_ratio
     from {{ ref('fct_trip') }}
     group by feed, service_date, route_id
 ),

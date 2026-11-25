@@ -1,27 +1,22 @@
-with version_files as (
-    select d.feed, d.service_date, f.file_name, f.file_sha256
+with static_trips as (
+    select d.feed, d.service_date, t.trip_id, t.route_id, t.pattern_id, t.service_id
     from {{ ref('int_service_dates') }} d
-    join {{ source('bronze', 'static_version_file') }} f on f.feed = d.feed and f.version_id = d.version_id
-),
-
-static_trips as (
-    select vf.feed, vf.service_date, t.trip_id, t.route_id, t.pattern_id, t.service_id
-    from version_files vf
-    join {{ ref('stg_gtfs__trips') }} t on t.file_sha256 = vf.file_sha256
-    where vf.file_name = 'trips.txt'
+    join {{ ref('int_version_files') }} f on f.feed = d.feed and f.version_id = d.version_id
+    join {{ ref('stg_gtfs__trips') }} t on t.file_sha256 = f.trips_sha256
 ),
 
 static_routes as (
-    select distinct on (vf.feed, vf.service_date, match_key)
-        vf.feed,
-        vf.service_date,
+    select distinct on (d.feed, d.service_date, match_key)
+        d.feed,
+        d.service_date,
         r.route_id,
         case c.rt_route_match when 'route_id' then r.route_id when 'route_long_name' then r.route_long_name end as match_key
-    from version_files vf
-    join {{ ref('stg_gtfs__routes') }} r on r.file_sha256 = vf.file_sha256
-    join {{ ref('feed_config') }} c on c.feed = vf.feed
-    where vf.file_name = 'routes.txt' and c.rt_route_match is not null
-    order by vf.feed, vf.service_date, match_key, r.route_id
+    from {{ ref('int_service_dates') }} d
+    join {{ ref('int_version_files') }} f on f.feed = d.feed and f.version_id = d.version_id
+    join {{ ref('stg_gtfs__routes') }} r on r.file_sha256 = f.routes_sha256
+    join {{ ref('feed_config') }} c on c.feed = d.feed
+    where c.rt_route_match is not null
+    order by d.feed, d.service_date, match_key, r.route_id
 )
 
 select

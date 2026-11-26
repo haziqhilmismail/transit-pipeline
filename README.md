@@ -164,7 +164,7 @@ numbers. No table has `vehicle_id`, `trip_id` or another key of one vehicle or o
 | `route_schedule` | feed, route, service date, scheduled departure | 35 |
 | `route_hour` | feed, route, service date, MYT hour: active vehicles and runs | 35 |
 | `network_hour` | feed, service date, MYT hour: active routes and runs | 35 |
-| `feed_day` | feed, service date: number of gaps, gap seconds, longest gap, routes, runs, coverage, `pct_on_headway`, uptime | 90 |
+| `feed_day` | feed, service date: number of gaps, gap seconds, longest gap, routes, runs, coverage, `on_headway_runs`, `pct_on_headway`, uptime | 90 |
 | `feed_gap` | each feed gap | 90 |
 
 Use the PostgREST filters, for example `?feed=eq.ktmb&service_date=gte.2026-11-20&order=service_date`.

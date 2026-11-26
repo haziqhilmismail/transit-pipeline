@@ -37,6 +37,7 @@ select
     r.scheduled_trips::int as scheduled_trips,
     round(r.observed_trips::numeric / nullif(r.scheduled_trips, 0), 3) as coverage,
     r.headway_runs::int as headway_runs,
+    r.on_headway_runs::int as on_headway_runs,
     round(100.0 * r.on_headway_runs / nullif(r.headway_runs, 0), 1) as pct_on_headway,
     r.feed_uptime_pct
 from {{ ref('int_service_dates') }} d

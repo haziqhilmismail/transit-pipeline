@@ -62,6 +62,22 @@ create table if not exists bronze.static_version_file (
 );
 create index if not exists static_version_file_sha on bronze.static_version_file (file_sha256);
 
+create table if not exists bronze.rt_repair (
+    feed text not null,
+    archive_date date not null,
+    outcome text not null check (outcome in (
+        'clean', 'repaired', 'copied', 'no_fill', 'unfillable', 'skipped_malformed', 'waiting', 'repairing'
+    )),
+    a_sha256 text,
+    b_sha256 text,
+    merged_sha256 text,
+    members_added int not null default 0,
+    gap_s_before int not null default 0,
+    gap_s_after int not null default 0,
+    decided_at timestamptz not null default now(),
+    primary key (feed, archive_date)
+);
+
 create table if not exists bronze.gtfs_row (
     file_sha256 text not null,
     row_num int not null,

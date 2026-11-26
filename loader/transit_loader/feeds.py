@@ -1,9 +1,13 @@
 import hashlib
 import logging
+import lzma
+import tarfile
+from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from enum import StrEnum
 from pathlib import Path
+from typing import BinaryIO
 
 log = logging.getLogger(__name__)
 
@@ -31,6 +35,19 @@ def file_sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def archive_path(root: Path, feed: str, archive_date: date) -> Path:
+    return root / "realtime" / feed / f"{archive_date.isoformat()}.tar.xz"
+
+
+def archive_members(archive: Path | BinaryIO) -> Iterator[tuple[tarfile.TarInfo, bytes]]:
+    """Every member of a packed day, in file order; a member that is not a regular file has empty bytes."""
+    # tarfile's own "r|xz" stream reads xz in small pieces and is slow on many small members.
+    with lzma.open(archive) as f, tarfile.open(fileobj=f, mode="r|") as tar:
+        for info in tar:
+            member = tar.extractfile(info)
+            yield info, member.read() if member else b""
+
+
 class ArchiveNotClosed(Exception):
     pass
 
@@ -38,7 +55,7 @@ class ArchiveNotClosed(Exception):
 def closed_archive_path(root: Path, feed: Feed, archive_date: date, *, today_utc: date) -> Path:
     if archive_date >= today_utc:
         raise ValueError(f"{archive_date} is not a closed UTC day (today is {today_utc})")
-    path = root / "realtime" / feed / f"{archive_date.isoformat()}.tar.xz"
+    path = archive_path(root, feed, archive_date)
     if not path.is_file():
         raise ArchiveNotClosed(str(path))
     return path

@@ -157,12 +157,13 @@ def test_dry_run_writes_nothing(conn, archive):
 def test_a_whole_missing_day_is_copied_from_b(conn, archive):
     tmp_path, a, b = archive
     a.unlink()
+    write_day(b, [at(0), *B_NAMES], "b")
 
     result = run(conn, tmp_path, b)
 
-    assert result.outcome == Outcome.COPIED
+    assert counts(result) == (Outcome.COPIED, len(B_NAMES) + 1, 86400, 0)
     assert a.read_bytes() == b.read_bytes()
-    assert ledger(conn) == [(DAY, "copied", len(B_NAMES))]
+    assert ledger(conn) == [(DAY, "copied", len(B_NAMES) + 1)]
 
 
 @pytest.mark.db

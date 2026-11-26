@@ -241,15 +241,20 @@ def decide(
         a_sha256=a_sha, b_sha256=file_sha256(b_path),
     )
     try:
-        plan = plan_repair(a_names, member_names(b_path), day)
+        b_names = member_names(b_path)
+        plan = plan_repair(a_names, b_names, day)
     except Malformed as e:
         log.warning("%s %s: B is malformed: %s", feed, day, e)
         return Decision(replace(unchanged, outcome=Outcome.SKIPPED_MALFORMED), path)
     if not plan.fill:
         return Decision(unchanged, path)
+    if a_sha is None:
+        b_gap_s = sum(g.seconds for g in find_gaps(stamps_of(b_names, day), day))
+        result = replace(unchanged, outcome=Outcome.COPIED, members_added=len(b_names), gap_s_after=b_gap_s)
+        return Decision(result, path, b_path)
     result = replace(
         unchanged,
-        outcome=Outcome.REPAIRED if a_sha else Outcome.COPIED,
+        outcome=Outcome.REPAIRED,
         members_added=len(plan.fill),
         gap_s_before=plan.gap_s_before,
         gap_s_after=plan.gap_s_after,

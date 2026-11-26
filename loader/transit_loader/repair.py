@@ -196,6 +196,11 @@ def _untouchable(packed: Path, day: date, now: datetime) -> bool:
     return packed.exists() and now.timestamp() - packed.stat().st_mtime < QUIET_S
 
 
+def late_outcome(day: date, now: datetime) -> Outcome:
+    """No usable B file yet: keep waiting inside the lookback, give up after it."""
+    return Outcome.UNFILLABLE if (now.date() - day).days > LOOKBACK_DAYS else Outcome.WAITING
+
+
 def read_ledger(conn: psycopg.Connection, feed: str, day: date) -> RepairResult | None:
     with conn.cursor(row_factory=dict_row) as cur:
         row = cur.execute(
@@ -235,9 +240,9 @@ def decide(
 
     b_path = fetch_b(feed, day)
     if b_path is None:
-        late = Outcome.UNFILLABLE if (now.date() - day).days > LOOKBACK_DAYS else Outcome.WAITING
         result = RepairResult(
-            feed=feed, archive_date=day, outcome=late, gap_s_before=gap_s, gap_s_after=gap_s, a_sha256=a_sha
+            feed=feed, archive_date=day, outcome=late_outcome(day, now),
+            gap_s_before=gap_s, gap_s_after=gap_s, a_sha256=a_sha,
         )
         return Decision(result, path)
     unchanged = RepairResult(
@@ -248,8 +253,9 @@ def decide(
         b_names = member_names(b_path)
         plan = plan_repair(a_names, b_names, day)
     except Malformed as e:
+        # B may still be re-fetched whole, so a bad B file waits like a missing one.
         log.warning("%s %s: B is malformed: %s", feed, day, e)
-        return Decision(replace(unchanged, outcome=Outcome.SKIPPED_MALFORMED), path)
+        return Decision(replace(unchanged, outcome=late_outcome(day, now)), path)
     if not plan.fill:
         return Decision(unchanged, path)
     if a_sha is None:

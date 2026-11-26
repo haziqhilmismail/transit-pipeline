@@ -201,6 +201,20 @@ def test_b_missing_waits_until_the_lookback_runs_out(conn, archive):
     assert ledger(conn) == [(DAY, "unfillable", 0)]
 
 
+@pytest.mark.db
+def test_a_malformed_b_waits_until_the_lookback_runs_out(conn, archive):
+    tmp_path, a, b = archive
+    original = a.read_bytes()
+    b.write_bytes(b.read_bytes()[:500])
+
+    waiting = run(conn, tmp_path, b, now=datetime(2026, 11, 27, 1, tzinfo=UTC))
+    unfillable = run(conn, tmp_path, b, now=datetime(2026, 11, 28, 1, tzinfo=UTC))
+
+    assert (waiting.outcome, unfillable.outcome) == (Outcome.WAITING, Outcome.UNFILLABLE)
+    assert a.read_bytes() == original
+    assert ledger(conn) == [(DAY, "unfillable", 0)]
+
+
 def fail_on_target(real_replace, *, after: bool):
     def fake(src, dst):
         if Path(dst).parent.parent.name == "realtime":

@@ -7,10 +7,15 @@ DBT = $(COMPOSE) exec -T -w /opt/airflow/dbt airflow-scheduler dbt $(1)
 HOST_DSN := postgresql://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@127.0.0.1:5442/warehouse
 comma := ,
 
-.PHONY: up down test backfill dbt-build docs psql logs stats
+.PHONY: up api-roles down test backfill dbt-build docs psql logs stats
 
 up:
 	$(COMPOSE) up -d --build --wait
+	$(MAKE) api-roles
+
+# Roles for PostgREST. Idempotent: run it again after a password change in .env.
+api-roles:
+	@$(COMPOSE) exec -T postgres psql -q -v ON_ERROR_STOP=1 -v pw="$(API_DB_PASSWORD)" -U $(POSTGRES_USER) -d airflow < docker/api-roles.sql
 
 down:
 	$(COMPOSE) down

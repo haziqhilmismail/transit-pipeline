@@ -158,10 +158,18 @@ def test_a_whole_missing_day_is_copied_from_b(conn, archive):
 @pytest.mark.db
 @pytest.mark.parametrize(
     ("a_names", "outcome"),
-    [(B_NAMES, Outcome.CLEAN), (A_NAMES, Outcome.NO_FILL), ([at(60), at(30)], Outcome.SKIPPED_MALFORMED)],
+    [
+        (B_NAMES, Outcome.CLEAN),
+        (A_NAMES, Outcome.NO_FILL),
+        ([at(60), at(30)], Outcome.SKIPPED_MALFORMED),
+        (None, Outcome.SKIPPED_MALFORMED),
+    ],
 )
 def test_days_with_nothing_to_fill_are_final_without_writing(conn, tmp_path, a_names, outcome):
-    a = write_day(tmp_path / "data" / "realtime" / FEED / f"{DAY}.tar.xz", a_names, "a")
+    a = write_day(tmp_path / "data" / "realtime" / FEED / f"{DAY}.tar.xz", a_names or A_NAMES, "a")
+    if a_names is None:
+        a.write_bytes(a.read_bytes()[:500])
+        os.utime(a, ((NOW - timedelta(hours=1)).timestamp(),) * 2)
     b_blind = write_day(tmp_path / "b.tar.xz", [at(s) for s in range(0, 36000, 30)], "b")
     original = a.read_bytes()
 

@@ -136,8 +136,11 @@ def _open(path: Path) -> Iterator[tarfile.TarFile]:
 
 
 def member_names(path: Path) -> list[str]:
-    with _open(path) as tar:
-        return [m.name for m in tar]
+    try:
+        with _open(path) as tar:
+            return [m.name for m in tar]
+    except (lzma.LZMAError, tarfile.TarError, EOFError) as e:
+        raise Malformed(f"{path}: {e}") from e
 
 
 def _members(path: Path) -> Iterator[tuple[tarfile.TarInfo, bytes]]:
@@ -171,7 +174,6 @@ def write_merged(a_path: Path, b_path: Path, fill: Sequence[str], out: Path, wor
             pending = next(extra, None)
     with out.open("wb") as f:
         subprocess.run(["xz", "-6", "-T1", "-c", str(tar_path)], stdout=f, check=True)
-        os.fsync(f.fileno())
 
     a_seq, merged = _digests(a_path), _digests(out)
     names = [name for name, _ in merged]
@@ -213,15 +215,20 @@ def _record(conn: psycopg.Connection, result: RepairResult, **shas: str | None) 
 
 def _install(conn: psycopg.Connection, result: RepairResult, tmp: Path, path: Path, **shas: str | None) -> RepairResult:
     """Intent row, rename, final row: a crash at any point leaves either A's file or the verified new one."""
+    _fsync(tmp)
     shas["merged_sha256"] = file_sha256(tmp)
     _record(conn, replace(result, outcome=Outcome.REPAIRING), **shas)
     os.replace(tmp, path)
-    fd = os.open(path.parent, os.O_RDONLY)
+    _fsync(path.parent)
+    return _record(conn, result, **shas)
+
+
+def _fsync(path: Path) -> None:
+    fd = os.open(path, os.O_RDONLY)
     try:
         os.fsync(fd)
     finally:
         os.close(fd)
-    return _record(conn, result, **shas)
 
 
 def repair_day(
@@ -253,8 +260,8 @@ def repair_day(
         return _record(conn, result, a_sha256=row[1], merged_sha256=row[2])
 
     a_sha = file_sha256(path) if path.exists() else None
-    a_names = member_names(path) if a_sha else []
     try:
+        a_names = member_names(path) if a_sha else []
         gaps = find_gaps(stamps_of(a_names, day), day)
     except Malformed as e:
         log.warning("%s %s: A is malformed: %s", feed, day, e)
@@ -291,6 +298,7 @@ def repair_day(
             keep = state / "replaced" / feed / path.name
             keep.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(path, keep.with_name(keep.name + ".tmp"))
+            _fsync(keep.with_name(keep.name + ".tmp"))
             os.replace(keep.with_name(keep.name + ".tmp"), keep)
             with tempfile.TemporaryDirectory(dir=state) as work:
                 write_merged(path, b_path, plan.fill, tmp, Path(work))

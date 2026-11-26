@@ -79,7 +79,7 @@ def main(argv: list[str] | None = None) -> int:
     st.add_argument("--feed", action="append", type=Feed, choices=list(Feed))
     st.set_defaults(jobs=static_jobs, feeds=list(Feed))
     rp = commands.add_parser("repair", help="fill outage gaps in closed archive days from collector B's copy")
-    rp.add_argument("--mode", type=Mode, choices=list(Mode), default=os.environ.get("TRANSIT_REPAIR", "dry"))
+    rp.add_argument("--mode", type=Mode, choices=list(Mode), default=os.environ.get("TRANSIT_REPAIR") or "dry")
     rp.add_argument("--days", type=int, default=LOOKBACK_DAYS + 1, help="closed days to visit, newest first")
     rp.add_argument("--feed", action="append")
     rp.set_defaults(jobs=repair_jobs, feeds=None)
@@ -91,6 +91,7 @@ def main(argv: list[str] | None = None) -> int:
     root = Path(os.environ["TRANSIT_ARCHIVE_ROOT"])
     failed = 0
     with connect(os.environ["WAREHOUSE_DSN"]) as conn:
+        # Repair covers every feed folder the hoarder writes, not only the loaded ones: Harith's site reads them all.
         feeds = args.feed or args.feeds or sorted(p.name for p in (root / "realtime").iterdir() if p.is_dir())
         for feed in feeds:
             # One job per archive day, so one bad day does not stop the days after it.

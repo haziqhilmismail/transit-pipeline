@@ -159,7 +159,7 @@ The stack also serves a read-only HTTP API on the gold data. The
 ### Set it up
 
 1. Clone the dashboard repo next to this repo, or set `DASHBOARD_SITE` in `.env` to its `site/` folder.
-2. Set `API_DB_PASSWORD`, `STATS_SITE_HOSTS` and `STATS_TUNNEL_DIR` in `.env`.
+2. Set `API_DB_PASSWORD` and `STATS_SITE_HOSTS` in `.env`. Set `STATS_TUNNEL_DIR` too if you want the public tunnel; leave it empty and `make up` skips it.
 3. Make the database roles. `make up` and `make dbt-build` also do this step. You can run it again.
 
    ```sh

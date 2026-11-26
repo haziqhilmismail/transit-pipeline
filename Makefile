@@ -10,11 +10,12 @@ comma := ,
 .PHONY: up api-roles down test backfill dbt-build docs psql logs stats
 
 up:
-	@test -n "$(API_DB_PASSWORD)" -a -n "$(STATS_SITE_HOSTS)" -a -d "$(STATS_TUNNEL_DIR)" || \
-		(echo "set API_DB_PASSWORD, STATS_SITE_HOSTS and STATS_TUNNEL_DIR (an existing folder) in .env" && exit 2)
+	@test -n "$(API_DB_PASSWORD)" -a -n "$(STATS_SITE_HOSTS)" || \
+		(echo "set API_DB_PASSWORD and STATS_SITE_HOSTS in .env" && exit 2)
+	@test -z "$(STATS_TUNNEL_DIR)" -o -d "$(STATS_TUNNEL_DIR)" || (echo "STATS_TUNNEL_DIR is not a folder" && exit 2)
 	$(COMPOSE) up -d --wait postgres
 	$(MAKE) api-roles
-	$(COMPOSE) --profile stats up -d --build --wait
+	$(COMPOSE) --profile stats $(if $(STATS_TUNNEL_DIR),--profile tunnel) up -d --build --wait
 
 # Roles for PostgREST. Idempotent: run it again after a password change in .env.
 # dbt grants SELECT on the api tables to web_anon, so dbt-build needs the roles first.
@@ -22,7 +23,7 @@ api-roles:
 	@$(COMPOSE) exec -T postgres psql -q -v ON_ERROR_STOP=1 -v pw="$(API_DB_PASSWORD)" -U $(POSTGRES_USER) -d airflow < docker/api-roles.sql
 
 down:
-	$(COMPOSE) --profile stats down
+	$(COMPOSE) --profile stats --profile tunnel down
 
 # dbt unit tests need one finished `make dbt-build` (they read parent columns).
 test:
@@ -45,7 +46,7 @@ psql:
 	$(COMPOSE) exec postgres psql -U $(POSTGRES_USER) warehouse
 
 logs:
-	$(COMPOSE) --profile stats logs -f --tail 100
+	$(COMPOSE) --profile stats --profile tunnel logs -f --tail 100
 
 stats:
 	docker stats --no-stream $$($(COMPOSE) ps -q)

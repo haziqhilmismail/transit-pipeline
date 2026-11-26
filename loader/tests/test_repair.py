@@ -16,7 +16,7 @@ from transit_loader.repair import Malformed, Outcome, RepairResult, member_names
 DAY = date(2026, 11, 20)
 NOW = datetime(2026, 11, 21, 1, tzinfo=UTC)
 FEED = "prasarana-rapid-bus-kl"
-KTMB_DAY = Path(os.environ.get("TRANSIT_SAMPLE_DAY", "/home/haziq/harith-proj/transit/data/realtime/ktmb/2026-11-25.tar.xz"))
+KTMB_DAY = Path(os.environ.get("TRANSIT_SAMPLE_DAY", ""))
 
 
 def at(s: int) -> str:

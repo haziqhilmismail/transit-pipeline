@@ -27,7 +27,6 @@ x-airflow: &airflow
     - airflow-logs:/opt/airflow/logs
     - ${TRANSIT_DATA}/realtime:/data/realtime:ro
     - ${TRANSIT_DATA}/static:/data/static:ro
-    - repair-state:/opt/airflow/repair-state
   depends_on: &airflow-deps
     postgres:
       condition: service_healthy
@@ -78,7 +77,15 @@ services:
   airflow-scheduler:
     <<: *airflow
     command: scheduler
-    # Repair runs only here (LocalExecutor). B_DIR is in the state volume; the fetch of B's days will fill it.
+    # Repair runs only here (LocalExecutor), so only the scheduler mounts the state volume.
+    # B_DIR is in that volume; the fetch of B's days will fill it.
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - ./dbt:/opt/airflow/dbt
+      - airflow-logs:/opt/airflow/logs
+      - ${TRANSIT_DATA}/realtime:/data/realtime:ro
+      - ${TRANSIT_DATA}/static:/data/static:ro
+      - repair-state:/opt/airflow/repair-state
     environment:
       <<: *airflow-env
       TRANSIT_REPAIR: ${TRANSIT_REPAIR:-dry}
@@ -95,7 +102,7 @@ services:
     mem_limit: 240m
 
   # Public stats API: PostgREST on the api schema. No host port; stats-web is the only way in.
-  # Profile "stats": `make up` starts both and checks API_DB_PASSWORD and STATS_SITE_HOSTS first.
+  # Profile "stats": `make up` starts stats-api and stats-web after it checks API_DB_PASSWORD and STATS_SITE_HOSTS.
   stats-api:
     profiles: [stats]
     image: postgrest/postgrest:v16.6
@@ -137,10 +144,12 @@ services:
     restart: unless-stopped
 
   # Cloudflare tunnel to stats-web. STATS_TUNNEL_DIR holds config.yml and the tunnel credentials (not in git).
+  # Profile "tunnel": `make up` adds it only when STATS_TUNNEL_DIR is set.
   stats-tunnel:
-    profiles: [stats]
+    profiles: [tunnel]
     image: cloudflare/cloudflared:2026.11.0
-    user: "1000"
+    # The uid that owns the files in STATS_TUNNEL_DIR (the credentials file is mode 400).
+    user: "${STATS_TUNNEL_UID:-1000}"
     command: tunnel --no-autoupdate --config /etc/cloudflared/config.yml run
     volumes:
       - ${STATS_TUNNEL_DIR:-./stats/tunnel}:/etc/cloudflared:ro

@@ -131,12 +131,13 @@ The stack also serves a read-only HTTP API on the gold data. The
    make api-roles
    ```
 
-4. Build the API tables, then start the two services. They are in the compose profile `stats`, so
-   `make up` starts them and the other `make` targets do not need the two values from step 2.
+4. Build the API tables, then start the services. They are in the compose profile `stats`. Start them with
+   `make up` only, because it checks the two values from step 2 and makes the roles first. The other `make`
+   targets do not need those values.
 
    ```sh
    make dbt-build
-   docker compose --profile stats up -d
+   make up
    ```
 
 5. Get the first rows:

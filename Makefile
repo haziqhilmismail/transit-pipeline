@@ -21,7 +21,7 @@ api-roles:
 	@$(COMPOSE) exec -T postgres psql -q -v ON_ERROR_STOP=1 -v pw="$(API_DB_PASSWORD)" -U $(POSTGRES_USER) -d airflow < docker/api-roles.sql
 
 down:
-	$(COMPOSE) down
+	$(COMPOSE) --profile stats down
 
 # dbt unit tests need one finished `make dbt-build` (they read parent columns).
 test:
@@ -44,7 +44,7 @@ psql:
 	$(COMPOSE) exec postgres psql -U $(POSTGRES_USER) warehouse
 
 logs:
-	$(COMPOSE) logs -f --tail 100
+	$(COMPOSE) --profile stats logs -f --tail 100
 
 stats:
 	docker stats --no-stream $$($(COMPOSE) ps -q)

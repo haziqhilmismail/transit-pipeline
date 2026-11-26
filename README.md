@@ -125,17 +125,18 @@ The stack also serves a read-only HTTP API on the gold data. The
 
 1. Clone the dashboard repo next to this repo, or set `DASHBOARD_SITE` in `.env` to its `site/` folder.
 2. Set `API_DB_PASSWORD` and `STATS_SITE_HOSTS` in `.env`.
-3. Make the database roles. `make up` also does this step. You can run it again.
+3. Make the database roles. `make up` and `make dbt-build` also do this step. You can run it again.
 
    ```sh
    make api-roles
    ```
 
-4. Build the API tables, then start the two services:
+4. Build the API tables, then start the two services. They are in the compose profile `stats`, so
+   `make up` starts them and the other `make` targets do not need the two values from step 2.
 
    ```sh
    make dbt-build
-   docker compose up -d stats-api stats-web
+   docker compose --profile stats up -d
    ```
 
 5. Get the first rows:
@@ -148,13 +149,13 @@ Each `dbt build` sends `notify pgrst, 'reload schema'` at the end, so PostgREST 
 
 ### Tables
 
-Each table keeps a fixed number of days up to `data_through`, the newest service date with realtime data. No table
-has `vehicle_id`, `trip_id` or another key of one vehicle or one trip.
+Each table keeps a fixed number of days up to `data_through`, the newest service date with realtime data. The
+`api_days_long` (90), `api_days_short` (35) and `api_days_summary` (28) vars in `dbt/dbt_project.yml` set the
+numbers. No table has `vehicle_id`, `trip_id` or another key of one vehicle or one trip.
 
 | Table | One row per | Days |
 |---|---|---|
 | `meta` | (one row): `data_from`, `data_through`, `feeds`, `attribution`, `licence_url` | - |
-| `network_day` | feed, service date: routes, runs, coverage, `pct_on_headway`, uptime | 90 |
 | `route_day` | feed, route, service date: `fct_route_day` with the route names | 90 |
 | `route_summary` | feed, route: totals of the last 28 days | 28 |
 | `headway_day` | feed, service date, headway class: runs | 90 |
@@ -163,7 +164,7 @@ has `vehicle_id`, `trip_id` or another key of one vehicle or one trip.
 | `route_schedule` | feed, route, service date, scheduled departure | 35 |
 | `route_hour` | feed, route, service date, MYT hour: active vehicles and runs | 35 |
 | `network_hour` | feed, service date, MYT hour: active routes and runs | 35 |
-| `feed_day` | feed, service date: number of gaps, gap seconds, longest gap, uptime | 90 |
+| `feed_day` | feed, service date: number of gaps, gap seconds, longest gap, routes, runs, coverage, `pct_on_headway`, uptime | 90 |
 | `feed_gap` | each feed gap | 90 |
 
 Use the PostgREST filters, for example `?feed=eq.ktmb&service_date=gte.2026-11-20&order=service_date`.
@@ -172,13 +173,14 @@ Use the PostgREST filters, for example `?feed=eq.ktmb&service_date=gte.2026-11-2
 
 | Layer | Rule |
 |---|---|
-| Postgres | `web_anon` (no login) can only `SELECT` the `api` tables. Its statements stop after 2 s and are read-only. `authenticator` has at most 5 connections. |
+| Postgres | `web_anon` (no login) can only `SELECT` the `api` tables. Its statements stop after 2 s. PostgREST runs each GET in a read-only transaction. `authenticator` has at most 5 connections. |
 | PostgREST | At most 2,000 rows for each request, a pool of 3 connections, no OpenAPI document, no aggregates. |
-| Caddy | GET and HEAD only (else 405). An unknown `Host` gets 421. At most 8 connections to PostgREST, 5 s timeout. The `Prefer` header is removed, so a client cannot ask for an exact count. |
-| Caddy headers | `/api/*` answers have `Cache-Control: public, max-age=600` and `Access-Control-Allow-Origin: https://transit.harithilmi.com`. The page has `Cache-Control: no-cache`. |
+| Caddy | GET and HEAD only (else 405). An unknown `Host` gets 421. At most 8 requests in flight to PostgREST. A request waits at most 2 s for a free slot, then gets 503. PostgREST must start its answer in 5 s. |
+| Caddy request headers | The URL alone sets the answer, so a cache can use the URL as its key. Caddy sets `Accept: application/json` and removes `Range`, `Range-Unit`, `Prefer`, `Authorization`, `Accept-Profile` and `Content-Profile`. A client cannot ask for an exact count (`Prefer`), CSV, or a single object. |
+| Caddy response headers | 2xx `/api/*` answers have `Cache-Control: public, max-age=600`. Errors, 405 and 421 have `Cache-Control: no-store`. The page has `Cache-Control: no-cache`. `/api/*` answers have `Access-Control-Allow-Origin: https://transit.harithilmi.com`. There is no CORS preflight (OPTIONS gets 405), so another origin can only send a GET without custom headers. |
 
 Memory limits: `stats-api` 64 MB, `stats-web` 48 MB. Measured peak under 750 requests (15 rounds of 50 at the same
-time, 2,000 rows each) on 2026-11-26: `stats-api` 32 MiB, `stats-web` 19 MiB.
+time, 2,000 rows each, all 200) on 2026-11-26: `stats-api` 36 MiB, `stats-web` 20 MiB.
 
 ## Data source and its limits
 

@@ -53,7 +53,7 @@ models:
 
   - name: feed_day
     description: >
-      One row per feed and service date with realtime data. gap_s is the time inside the day with no new snapshot
+      One row per feed and service date with realtime data (last api_days_long days). gap_s is the time inside the day with no new snapshot
       for more than feed_gap_s. The route columns are totals over fct_route_day; they are null on a day that is not
       rt_usable. feed_uptime_pct is over the scheduled service span (null without a schedule).
     data_tests:

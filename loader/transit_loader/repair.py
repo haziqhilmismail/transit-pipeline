@@ -271,13 +271,15 @@ def apply(conn: psycopg.Connection, state: Path, decision: Decision) -> RepairRe
     result, path, b_path = decision.result, decision.path, decision.b_path
     if b_path is None:
         return _record(conn, result)
-    if result.outcome == Outcome.COPIED:
-        return _install(conn, result, b_path, path)
-    _durable_copy(path, state / "replaced" / result.feed / path.name)
+    state.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(dir=state) as work:
-        merged = Path(work) / path.name
-        write_merged(path, b_path, decision.fill, merged, Path(work))
-        return _install(conn, result, merged, path)
+        staged = Path(work) / path.name
+        if result.outcome == Outcome.REPAIRED:
+            _durable_copy(path, state / "replaced" / result.feed / path.name)
+            write_merged(path, b_path, decision.fill, staged, Path(work))
+        else:
+            shutil.copyfile(b_path, staged)
+        return _install(conn, result, staged, path)
 
 
 def prune_replaced(state: Path, feed: str, now: datetime) -> None:

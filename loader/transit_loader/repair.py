@@ -13,8 +13,7 @@ import shutil
 import subprocess
 import tarfile
 import tempfile
-from collections.abc import Callable, Iterator, Sequence
-from contextlib import contextmanager
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime, timedelta
 from enum import StrEnum
@@ -22,7 +21,7 @@ from pathlib import Path
 
 import psycopg
 
-from transit_loader.feeds import file_sha256, parse_stamp
+from transit_loader.feeds import archive_members, archive_path, file_sha256, parse_stamp
 
 log = logging.getLogger(__name__)
 
@@ -128,30 +127,15 @@ def plan_repair(a_names: Sequence[str], b_names: Sequence[str], day: date) -> Pl
     return Plan(fill, sum(g.seconds for g in gaps), sum(g.seconds for g in after))
 
 
-@contextmanager
-def _open(path: Path) -> Iterator[tarfile.TarFile]:
-    # tarfile's own "r|xz" stream is slow on many small members; lzma.open buffers properly.
-    with lzma.open(path) as f, tarfile.open(fileobj=f, mode="r|") as tar:
-        yield tar
-
-
 def member_names(path: Path) -> list[str]:
     try:
-        with _open(path) as tar:
-            return [m.name for m in tar]
+        return [info.name for info, _ in archive_members(path)]
     except (lzma.LZMAError, tarfile.TarError, EOFError) as e:
         raise Malformed(f"{path}: {e}") from e
 
 
-def _members(path: Path) -> Iterator[tuple[tarfile.TarInfo, bytes]]:
-    with _open(path) as tar:
-        for info in tar:
-            f = tar.extractfile(info)
-            yield info, f.read() if f else b""
-
-
 def _digests(path: Path) -> list[tuple[str, str]]:
-    return [(info.name, hashlib.sha256(data).hexdigest()) for info, data in _members(path)]
+    return [(info.name, hashlib.sha256(data).hexdigest()) for info, data in archive_members(path)]
 
 
 def write_merged(a_path: Path, b_path: Path, fill: Sequence[str], out: Path, work: Path) -> None:
@@ -160,11 +144,11 @@ def write_merged(a_path: Path, b_path: Path, fill: Sequence[str], out: Path, wor
     Reads `out` back and raises unless it holds A's members byte for byte and in order, plus exactly `fill`.
     """
     wanted = set(fill)
-    extra = ((info, data) for info, data in _members(b_path) if info.name in wanted)
+    extra = ((info, data) for info, data in archive_members(b_path) if info.name in wanted)
     pending = next(extra, None)
     tar_path = work / "merged.tar"
     with tarfile.open(tar_path, "w", format=tarfile.USTAR_FORMAT) as tar:
-        for info, data in _members(a_path):
+        for info, data in archive_members(a_path):
             while pending and pending[0].name < info.name:
                 tar.addfile(pending[0], io.BytesIO(pending[1]))
                 pending = next(extra, None)
@@ -184,13 +168,13 @@ def write_merged(a_path: Path, b_path: Path, fill: Sequence[str], out: Path, wor
         raise RuntimeError(f"{out}: merged member names are wrong or out of order")
 
 
-def _untouchable(feed_dir: Path, day: date, now: datetime) -> bool:
+def _untouchable(packed: Path, day: date, now: datetime) -> bool:
     """The hoarder may still write this day: it is today, still open, being packed, or packed too recently."""
+    feed_dir = packed.parent
     if day >= now.date() or (feed_dir / f"{day}.tar").exists():
         return True
     if any(not p.name.endswith(TMP_SUFFIX) for p in feed_dir.glob(f"{day}.*tmp")):
         return True
-    packed = feed_dir / f"{day}.tar.xz"
     return packed.exists() and now.timestamp() - packed.stat().st_mtime < QUIET_S
 
 
@@ -233,7 +217,7 @@ def _fsync(path: Path) -> None:
 
 def repair_day(
     conn: psycopg.Connection,
-    realtime: Path,
+    root: Path,
     state: Path | None,
     feed: str,
     day: date,
@@ -250,10 +234,9 @@ def repair_day(
     ).fetchone()
     if row and row[0] in FINAL:
         return None
-    feed_dir = realtime / feed
-    if _untouchable(feed_dir, day, now):
+    path = archive_path(root, feed, day)
+    if _untouchable(path, day, now):
         return None
-    path = feed_dir / f"{day}.tar.xz"
     if row and row[0] == Outcome.REPAIRING and path.exists() and file_sha256(path) == row[2]:
         done = Outcome.COPIED if row[1] is None else Outcome.REPAIRED
         result = RepairResult(feed, day, done, *row[3:], dry_run=dry_run)

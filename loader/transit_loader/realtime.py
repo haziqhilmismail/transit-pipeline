@@ -1,14 +1,22 @@
-import tarfile
 from collections.abc import Iterator
 from dataclasses import astuple, dataclass
 from datetime import date, datetime
 from pathlib import Path, PurePosixPath
+from typing import BinaryIO
 
 import psycopg
 from google.protobuf.message import DecodeError
 from google.transit import gtfs_realtime_pb2
 
-from transit_loader.feeds import Feed, closed_archive_dates, closed_archive_path, file_sha256, parse_stamp
+from transit_loader.feeds import (
+    Feed,
+    archive_members,
+    archive_path,
+    closed_archive_dates,
+    closed_archive_path,
+    file_sha256,
+    parse_stamp,
+)
 
 
 @dataclass(frozen=True)
@@ -74,11 +82,10 @@ def parse_snapshot(member_name: str, payload: bytes) -> tuple[Snapshot, list[Pos
     return snapshot, positions
 
 
-def read_archive(path: Path) -> Iterator[tuple[Snapshot, list[Position]] | None]:
-    with tarfile.open(path, "r|xz") as tar:
-        for member in tar:
-            if member.isfile() and member.name.endswith(".pb"):
-                yield parse_snapshot(member.name, tar.extractfile(member).read())
+def read_archive(archive: Path | BinaryIO) -> Iterator[tuple[Snapshot, list[Position]] | None]:
+    for info, payload in archive_members(archive):
+        if info.isfile() and info.name.endswith(".pb"):
+            yield parse_snapshot(info.name, payload)
 
 
 @dataclass(frozen=True)
@@ -145,7 +152,7 @@ def missing_archive_dates(
     return [
         d
         for d in closed_archive_dates(root, feed, today_utc=today_utc, earliest=earliest)
-        if d not in loaded or _replaced_since_load(root / "realtime" / feed / f"{d.isoformat()}.tar.xz", *loaded[d])
+        if d not in loaded or _replaced_since_load(archive_path(root, feed, d), *loaded[d])
     ]
 
 

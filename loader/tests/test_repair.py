@@ -99,13 +99,13 @@ def test_merge_restores_a_cut_hour_of_a_real_day_with_duplicate_names(tmp_path):
 @pytest.fixture
 def archive(tmp_path):
     a = write_day(tmp_path / "data" / "realtime" / FEED / f"{DAY}.tar.xz", A_NAMES, "a")
-    b = write_day(tmp_path / "b" / FEED / f"{DAY}.tar.xz", B_NAMES, "b")
+    b = write_day(tmp_path / "b" / "realtime" / FEED / f"{DAY}.tar.xz", B_NAMES, "b")
     return tmp_path, a, b
 
 
 def run(conn, tmp_path, b: Path | None, *, now=NOW, day=DAY, dry_run=False) -> RepairResult | None:
     return repair_day(
-        conn, tmp_path / "data" / "realtime", tmp_path / "state", FEED, day, lambda feed, d: b,
+        conn, tmp_path / "data", tmp_path / "state", FEED, day, lambda feed, d: b,
         now=now, dry_run=dry_run,
     )
 
@@ -273,7 +273,7 @@ def test_cli_repair_writes_only_in_mode_on(conn, warehouse_dsn, tmp_path, monkey
     day = datetime.now(UTC).date() - timedelta(days=1)
     names = [f"{day:%Y%m%d}T{hms}Z.pb" for hms in ("000010", "120000", "235950")]
     a = write_day(tmp_path / "data" / "realtime" / FEED / f"{day}.tar.xz", names[::2], "a")
-    write_day(tmp_path / "b" / FEED / f"{day}.tar.xz", names[1:2], "b")
+    write_day(tmp_path / "b" / "realtime" / FEED / f"{day}.tar.xz", names[1:2], "b")
     for name, value in (("WAREHOUSE_DSN", warehouse_dsn), ("TRANSIT_ARCHIVE_ROOT", tmp_path / "data"),
                         ("B_DIR", tmp_path / "b"), ("TRANSIT_STATE", tmp_path / "state")):
         monkeypatch.setenv(name, str(value))

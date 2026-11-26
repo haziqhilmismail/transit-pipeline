@@ -9,7 +9,7 @@ from pathlib import Path
 import psycopg
 
 from transit_loader.db import connect
-from transit_loader.feeds import REALTIME_FEEDS, Feed
+from transit_loader.feeds import REALTIME_FEEDS, Feed, archive_path
 from transit_loader.realtime import load_realtime, missing_archive_dates
 from transit_loader.repair import LOOKBACK_DAYS, Mode, repair_day
 from transit_loader.static import load_static
@@ -34,9 +34,9 @@ def static_jobs(conn: psycopg.Connection, root: Path, feed: Feed, args: argparse
 
 
 def fetch_b_from_dir(feed: str, day: date) -> Path | None:
-    # shortcut: B's archive is a local folder (B_DIR/<feed>/<date>.tar.xz); a download step replaces this.
+    # shortcut: B's archive is a local folder laid out like A's (B_DIR/realtime/<feed>/<date>.tar.xz); a download step replaces this.
     b_dir = os.environ.get("B_DIR")
-    path = Path(b_dir) / feed / f"{day.isoformat()}.tar.xz" if b_dir else None
+    path = archive_path(Path(b_dir), feed, day) if b_dir else None
     return path if path and path.is_file() else None
 
 
@@ -46,7 +46,7 @@ def repair_jobs(conn: psycopg.Connection, root: Path, feed: str, args: argparse.
     now = datetime.now(UTC)
     state = Path(os.environ["TRANSIT_STATE"]) if "TRANSIT_STATE" in os.environ else None
     return [
-        partial(repair_day, conn, root / "realtime", state, feed, now.date() - timedelta(days=n), fetch_b_from_dir,
+        partial(repair_day, conn, root, state, feed, now.date() - timedelta(days=n), fetch_b_from_dir,
                 now=now, dry_run=args.mode == Mode.DRY)
         for n in range(1, args.days + 1)
     ]

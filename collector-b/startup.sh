@@ -116,13 +116,12 @@ if [ "$want" != "$(cat "$STATE/image_id" 2>/dev/null)" ] || ! docker image inspe
   echo "$want" >"$STATE/image_id"
 fi
 
-# Same settings as Harith's deploy/compose.hoarder.yaml, except REALTIME_INTERVAL=40, to keep
-# the traffic down (see "Cost" in the README).
+# Same settings as Harith's deploy/compose.hoarder.yaml, except REALTIME_INTERVAL=30.
 # Host network: the default Docker bridge has no IPv6, and IPv6 is the only way out.
 run=(--name gtfs-hoarder-ts --restart unless-stopped --user 1000:1000
   --security-opt no-new-privileges:true --cap-drop ALL --read-only --tmpfs /tmp
   --memory 256m --network host --stop-timeout 40
-  -e DATA_DIR=/data -e REALTIME_INTERVAL=40 -e STATIC_INTERVAL=3600 -e MIN_FREE_GB=2
+  -e DATA_DIR=/data -e REALTIME_INTERVAL=30 -e STATIC_INTERVAL=3600 -e MIN_FREE_GB=2
   -v "$DATA:/data"
   --health-cmd 'node apps/backend/server/hoarder.ts status' --health-interval 1m --health-start-period 2m
   --log-opt max-size=10m --log-opt max-file=3

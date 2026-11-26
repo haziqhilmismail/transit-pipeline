@@ -18,9 +18,8 @@ private Cloud Storage bucket, and tower reads the bucket to repair A's closed da
 | `collector-b fw` | VM, at boot before Docker | Blocks the hoarder from the metadata server (see below). |
 
 The hoarder uses the settings from Harith's `deploy/compose.hoarder.yaml` (read-only root, no
-capabilities, user 1000:1000, 256 MB) with two changes. `REALTIME_INTERVAL` is 40 s rather than the
-feeds' 30 s refresh period, to send less traffic (see [Cost](#cost)). And the container uses the
-host network, since the default Docker bridge has no IPv6.
+capabilities, user 1000:1000, 256 MB) with two changes. `REALTIME_INTERVAL` is 30 s, the refresh period of
+the feeds. And the container uses the host network, since the default Docker bridge has no IPv6.
 
 The VM has no external IPv4 address. It reaches the internet over IPv6 only, and Cloud Storage
 through Private Google Access. That works because every host it needs has an IPv6 address:
@@ -146,8 +145,8 @@ gcloud storage ls -r gs://$BUCKET/b/realtime/
 
 ## Cost
 
-Everything fits in the Google Cloud free tier except, possibly, internet egress, which is close to
-the 1 GB limit.
+Everything fits in the Google Cloud free tier except internet egress, which can go a little over
+the free 1 GB. Expect a few US cents a month at most.
 
 | Item | Use | Free tier limit |
 |---|---|---|
@@ -158,7 +157,7 @@ the 1 GB limit.
 | Cloud NAT | none | (billed) |
 | Bucket storage, Standard, US region | about 2 GB (90 days of packed days) and a 70 MB image | 5 GB |
 | Class A operations (uploads and listings) | about 4,200 a month | 5,000 |
-| Internet egress from the VM | at most about 1.2 GB a month (measured, see below) | 1 GB a month |
+| Internet egress from the VM | at most about 1.1 to 1.55 GB a month (measured, see below) | 1 GB a month |
 
 The uploads are the Class A operations. In a 31-day month, `status.json` makes 2,976,
 `heartbeat.json` 744, and about 15 packed days a day make 465: about 4,200 in total. Each upload is
@@ -171,11 +170,14 @@ stay as billed storage, and traffic from the VM to Cloud Storage in the same reg
 Egress is harder to pin down. The Cloud Monitoring metric
 `compute.googleapis.com/instance/network/sent_bytes_count` counts everything the VM sends, Google
 traffic included, so it gives an upper bound on billed egress rather than the bill itself. On
-2026-11-26, at night in Malaysia, it showed about 25 KB a minute with `REALTIME_INTERVAL` at 30 s.
-At 40 s, from 19:04 to 19:33 UTC, the average was 26.5 KB a minute, which is 1.17 GB in a 30-day
-month. Polling less often barely moved it: the polls fell by a quarter, but sent packets fell by
-only about 8%. Most of what the VM sends isn't the feed polls, so a longer interval won't bring
-egress under 1 GB by itself. Internet egress costs about USD 0.12 a GB above the free tier. The
-billing report in the console shows the real internet egress for each day, by SKU.
+2026-11-26, at night in Malaysia, it showed about 25 KB a minute with `REALTIME_INTERVAL` at 30 s,
+with minutes from 22 to 36 KB. That's about 1.1 GB in a 30-day month, and 1.55 GB if every minute
+were as busy as the busiest one. Internet egress costs about USD 0.12 a GB above the free tier, so
+the overage is about USD 0.01 to 0.07 a month.
 
-A budget alert on the billing account sends an email when the cost goes above the limit.
+A longer interval doesn't help much. With `REALTIME_INTERVAL` at 40 s, from 19:04 to 19:33 UTC,
+the average was 26.5 KB a minute (1.17 GB in 30 days). The polls fell by a quarter, but sent
+packets fell by only about 8%, so most of what the VM sends isn't the feed polls. The billing
+report in the console shows the real internet egress for each day, by SKU.
+
+A budget alert of RM5 on the billing account sends an email if the cost goes above it.

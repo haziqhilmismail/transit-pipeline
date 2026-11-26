@@ -16,7 +16,69 @@ DATA=/srv/hoard
 STATE=/var/lib/collector-b
 mkdir -p "$STATE/uploaded"
 install -d -o 1000 -g 1000 "$DATA"
-echo "BUCKET=$BUCKET" >/etc/default/collector-b
+printf 'BUCKET=%s\nDATA=%s\nSTATE=%s\n' "$BUCKET" "$DATA" "$STATE" >/etc/default/collector-b
+
+# The timers go first: if a later step fails, the hourly apply timer runs this script again.
+cat >/usr/local/bin/collector-b <<'EOF'
+#!/bin/bash
+# collector-b sync|status|heartbeat|prune. Each upload is one JSON API request, one Class A
+# operation; `gcloud storage cp` also lists the bucket for a new object, a second Class A.
+# The free tier gives 5,000 a month.
+set -euo pipefail
+. /etc/default/collector-b
+mark() { echo "$STATE/uploaded/$(basename "$(dirname "$1")")/$(basename "$1")"; }
+up() { # file, object name, [precondition]. A 412 (precondition failed) is a success.
+  local tok code
+  tok=$(curl -fsS -H 'Metadata-Flavor: Google' \
+    http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token |
+    python3 -c 'import json,sys; print(json.load(sys.stdin)["access_token"])')
+  code=$(curl -sS -o /dev/null -w '%{http_code}' -X POST -T "$1" -H "Authorization: Bearer $tok" \
+    "https://storage.googleapis.com/upload/storage/v1/b/$BUCKET/o?uploadType=media&name=${2//\//%2F}${3:-}")
+  case $code in 200 | 412) ;; *) echo "upload of $2 failed: HTTP $code" >&2; return 1 ;; esac
+}
+case $1 in
+sync) # packed days are immutable, so a day is uploaded once and never overwritten
+  for f in "$DATA"/realtime/*/*.tar.xz; do
+    [ -e "$f" ] || continue
+    m=$(mark "$f")
+    [ -e "$m" ] && continue
+    if up "$f" "b/realtime/$(basename "$(dirname "$f")")/$(basename "$f")" '&ifGenerationMatch=0'; then
+      mkdir -p "${m%/*}"
+      touch "$m"
+    fi
+  done ;;
+status)
+  cp "$DATA/status.json" "$STATE/status.json"
+  up "$STATE/status.json" b/status.json ;;
+heartbeat)
+  ip6=$(ip -6 -o addr show scope global | awk '{sub(/\/.*/, "", $4); print $4; exit}')
+  printf '{"written": %s, "ext_ipv6": "%s", "image_id": "%s"}\n' \
+    "$(date +%s)" "$ip6" "$(cat "$STATE/image_id")" >"$STATE/heartbeat.json"
+  up "$STATE/heartbeat.json" b/heartbeat.json ;;
+prune) # local copies only, and only days already in the bucket
+  find "$DATA/realtime" -name '*.tar.xz' -mtime +30 | while read -r f; do
+    if [ -e "$(mark "$f")" ]; then rm -f "$f"; fi
+  done ;;
+*) echo "usage: collector-b sync|status|heartbeat|prune" >&2; exit 2 ;;
+esac
+EOF
+chmod 755 /usr/local/bin/collector-b
+
+timers=()
+timer() { # name, OnCalendar, command
+  printf '[Unit]\nDescription=collector-b %s\n[Service]\nType=oneshot\nExecStart=%s\n' "$1" "$3" \
+    >"/etc/systemd/system/collector-b-$1.service"
+  printf '[Timer]\nOnCalendar=%s\nPersistent=true\n[Install]\nWantedBy=timers.target\n' "$2" \
+    >"/etc/systemd/system/collector-b-$1.timer"
+  timers+=("collector-b-$1.timer")
+}
+timer sync '*:0/5' '/usr/local/bin/collector-b sync'
+timer status '*:0/15' '/usr/local/bin/collector-b status'
+timer heartbeat hourly '/usr/local/bin/collector-b heartbeat'
+timer prune daily '/usr/local/bin/collector-b prune'
+timer apply hourly '/usr/bin/google_metadata_script_runner startup'
+systemctl daemon-reload
+systemctl enable --now "${timers[@]}"
 
 # The VM has no external IPv4 and no NAT: only IPv6 reaches the internet.
 echo 'Acquire::ForceIPv6 "true";' >/etc/apt/apt.conf.d/99force-ipv6
@@ -30,14 +92,23 @@ if ! swapon --show=NAME --noheadings | grep -qx /swapfile; then
 fi
 
 if ! command -v docker >/dev/null; then
-  apt-get update -q
-  DEBIAN_FRONTEND=noninteractive apt-get install -yq docker.io
+  apt-get -o DPkg::Lock::Timeout=600 update -q
+  DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=600 install -yq docker.io
 fi
 
+# The hoarder runs as uid 1000 on the host network. It must not get the VM's storage token.
+for pair in "iptables 169.254.169.254" "ip6tables fd20:ce::254"; do
+  read -r cmd addr <<<"$pair"
+  rule=(OUTPUT -m owner --uid-owner 1000 -d "$addr" -p tcp --dport 80 -j REJECT)
+  "$cmd" -C "${rule[@]}" 2>/dev/null || "$cmd" -I "${rule[@]}"
+done
+
+load=no
 want=$(gcloud storage cat "gs://$BUCKET/ship/manifest.json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["image_id"])')
 if [ "$want" != "$(cat "$STATE/image_id" 2>/dev/null)" ] || ! docker image inspect transit-server:local >/dev/null 2>&1; then
-  gcloud storage cat "gs://$BUCKET/ship/transit-server.tar.gz" | gunzip | docker load
+  gcloud storage cat "gs://$BUCKET/ship/transit-server-${want#sha256:}.tar.gz" | gunzip | docker load
   echo "$want" >"$STATE/image_id"
+  load=yes
 fi
 
 # Same settings as Harith's deploy/compose.hoarder.yaml, except REALTIME_INTERVAL=30.
@@ -58,57 +129,7 @@ if [ "$(docker inspect -f '{{index .Config.Labels "collector-b.cfg"}} {{.State.R
   docker run -d --label "collector-b.cfg=$cfg" "${run[@]}"
   changed=yes
 fi
+if [ "$load" = yes ]; then docker image prune -f >/dev/null; fi
 
-cat >/usr/local/bin/collector-b <<'EOF'
-#!/bin/bash
-# collector-b sync|status|heartbeat|prune. Uploads never list the bucket, to keep
-# Class A operations inside the free 5,000 a month.
-set -euo pipefail
-. /etc/default/collector-b
-DATA=/srv/hoard
-STATE=/var/lib/collector-b
-up() { gcloud storage cp --quiet "$@"; }
-case $1 in
-sync) # packed days are immutable, so a day is uploaded once and never overwritten
-  for f in "$DATA"/realtime/*/*.tar.xz; do
-    [ -e "$f" ] || continue
-    feed=$(basename "$(dirname "$f")")
-    mark=$STATE/uploaded/$feed/$(basename "$f")
-    [ -e "$mark" ] && continue
-    if up --no-clobber "$f" "gs://$BUCKET/b/realtime/$feed/$(basename "$f")"; then
-      mkdir -p "${mark%/*}"
-      touch "$mark"
-    fi
-  done ;;
-status)
-  cp "$DATA/status.json" "$STATE/status.json"
-  up "$STATE/status.json" "gs://$BUCKET/b/status.json" ;;
-heartbeat)
-  ip6=$(ip -6 -o addr show scope global | awk '{sub(/\/.*/, "", $4); print $4; exit}')
-  printf '{"written": %s, "ext_ipv6": "%s", "image_id": "%s"}\n' \
-    "$(date +%s)" "$ip6" "$(cat "$STATE/image_id")" >"$STATE/heartbeat.json"
-  up "$STATE/heartbeat.json" "gs://$BUCKET/b/heartbeat.json" ;;
-prune) # local copies only, and only days already in the bucket
-  find "$DATA/realtime" -name '*.tar.xz' -mtime +30 | while read -r f; do
-    if [ -e "$STATE/uploaded/$(basename "$(dirname "$f")")/$(basename "$f")" ]; then rm -f "$f"; fi
-  done ;;
-*) echo "usage: collector-b sync|status|heartbeat|prune" >&2; exit 2 ;;
-esac
-EOF
-chmod 755 /usr/local/bin/collector-b
-
-timer() { # name, OnCalendar, command
-  printf '[Unit]\nDescription=collector-b %s\n[Service]\nType=oneshot\nExecStart=%s\n' "$1" "$3" \
-    >"/etc/systemd/system/collector-b-$1.service"
-  printf '[Timer]\nOnCalendar=%s\nPersistent=true\n[Install]\nWantedBy=timers.target\n' "$2" \
-    >"/etc/systemd/system/collector-b-$1.timer"
-}
-timer sync '*:0/5' '/usr/local/bin/collector-b sync'
-timer status '*:0/15' '/usr/local/bin/collector-b status'
-timer heartbeat hourly '/usr/local/bin/collector-b heartbeat'
-timer prune daily '/usr/local/bin/collector-b prune'
-timer apply hourly '/usr/bin/google_metadata_script_runner startup'
-systemctl daemon-reload
-systemctl enable --now collector-b-{sync,status,heartbeat,prune,apply}.timer
 if [ "$changed" = yes ]; then systemctl start --no-block collector-b-heartbeat.service; fi
 echo "collector-b: ready, image $want, container cfg $cfg"

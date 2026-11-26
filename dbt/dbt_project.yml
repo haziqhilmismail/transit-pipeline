@@ -39,6 +39,7 @@ models:
     # Tables, not views: a view on gold is dropped (cascade) each time dbt replaces a gold table.
     api:
       +schema: api
+      +tags: api
       +grants: {select: [web_anon]}
 
 seeds:

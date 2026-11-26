@@ -44,7 +44,7 @@
     {% endfor %}
     {# The api tables are a copy for the public API; their failures must not hold back the core stamp. #}
     {% set core = [] %}
-    {% for r in results if not r.node.original_file_path.startswith('models/api/') %}
+    {% for r in results if 'api' not in r.node.tags %}
         {% do core.append(r) %}
     {% endfor %}
     {% set failed = core | selectattr('status', 'in', ['error', 'fail', 'skipped']) | list %}

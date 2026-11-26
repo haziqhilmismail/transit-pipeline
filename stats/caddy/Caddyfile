@@ -1,6 +1,9 @@
 :80 {
 	# route keeps the order below; Caddy would otherwise run handle blocks before respond.
 	route {
+		# Errors must not stay in a cache. The page and 2xx answers from PostgREST replace this below.
+		header Cache-Control "no-store"
+
 		# Names this site answers to. Any other Host header (a DNS rebinding page, for example) gets 421.
 		@unknown_host not host {$SITE_HOSTS}
 		respond @unknown_host 421
@@ -15,15 +18,32 @@
 		}
 
 		handle_path /api/* {
+			# The data changes once a day. Cloudflare and browsers may keep each 2xx answer for 10 minutes.
+			header {
+				Cache-Control "public, max-age=600"
+				match status 2xx
+			}
 			reverse_proxy stats-api:3000 {
-				# No `Prefer: count=exact`: an exact count scans the whole table.
+				# The cache key is the URL only, so every request header that changes the PostgREST answer is fixed or removed.
+				# Prefer also asks for an exact count, which scans the whole table.
+				header_up Accept application/json
+				header_up -Range
+				header_up -Range-Unit
 				header_up -Prefer
-				# The data changes once a day. Cloudflare and browsers may keep each answer for 10 minutes.
-				header_down Cache-Control "public, max-age=600"
+				header_up -Authorization
+				header_up -Accept-Profile
+				header_up -Content-Profile
+				header_down -Cache-Control
 				# Harith's site (a different origin) reads the per-route panel. Replaces PostgREST's own CORS header.
+				# Preflight is not supported: OPTIONS gets 405, so only a GET without custom headers works cross-origin.
 				header_down Access-Control-Allow-Origin "https://transit.harithilmi.com"
+				# At most 8 requests in flight. A request waits at most 2 s for a free slot, then gets 503.
+				unhealthy_request_count 8
+				lb_try_duration 2s
+				lb_try_interval 100ms
 				transport http {
 					max_conns_per_host 8
+					dial_timeout 2s
 					response_header_timeout 5s
 				}
 			}

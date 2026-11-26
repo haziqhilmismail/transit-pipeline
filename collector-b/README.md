@@ -9,7 +9,7 @@ Cloud Storage bucket. Tower reads the bucket and repairs A's closed days.
 
 | Part | Where | What it does |
 |---|---|---|
-| `ship-image.sh` | tower | Copies the `transit-server:local` image and a manifest to `gs://$BUCKET/ship/`. |
+| `ship-image.sh` | tower | Copies the `transit-server:local` image to `gs://$BUCKET/ship/transit-server-<id>.tar.gz`, then writes `ship/manifest.json`. |
 | `startup.sh` | VM, at boot and every hour | Makes swap, installs Docker, loads the image when the manifest changes, (re)starts the hoarder, writes the timers. |
 | `collector-b sync` | VM, every 5 min | Uploads new packed days to `gs://$BUCKET/b/realtime/<feed>/<date>.tar.xz`. It never overwrites. |
 | `collector-b status` | VM, every 15 min | Uploads the hoarder `status.json` to `gs://$BUCKET/b/status.json`. |
@@ -25,7 +25,11 @@ Storage through Private Google Access. Every host it needs has an IPv6 address: 
 `deb.debian.org` and `packages.cloud.google.com`.
 
 The startup script stops if the GCE metadata server does not answer, so it never starts a second
-hoarder on tower.
+hoarder on tower. A firewall rule on the VM blocks uid 1000 (the hoarder) from the metadata server,
+so the hoarder cannot get the VM's storage token.
+
+The hoarder of collector B does not collect `jaguh-bayu`. That feed comes from `otp-prd.transitos.io`,
+which has no IPv6 address.
 
 ## Create it
 
@@ -85,7 +89,8 @@ gcloud services enable compute.googleapis.com storage.googleapis.com
      --iam-account=tower-reader@$PROJECT.iam.gserviceaccount.com)
    ```
 
-5. On tower, ship the image:
+5. On tower, ship the image. Use your own gcloud account (the project owner), not the
+   `tower-reader` key, because the script writes and deletes objects in `ship/`.
 
    ```sh
    BUCKET=$BUCKET collector-b/ship-image.sh
@@ -136,7 +141,7 @@ gcloud storage ls -r gs://$BUCKET/b/realtime/
 
 ## Cost
 
-The design stays inside the Google Cloud free tier. The expected cost is USD 0.
+The design stays inside the Google Cloud free tier, except possibly for internet egress.
 
 | Item | Use | Free tier limit |
 |---|---|---|
@@ -146,12 +151,21 @@ The design stays inside the Google Cloud free tier. The expected cost is USD 0.
 | External IPv6 address | 1 | no charge |
 | Cloud NAT | none | (billed) |
 | Bucket storage, Standard, US region | about 2 GB (90 days of packed days) and a 70 MB image | 5 GB |
-| Class A operations (uploads) | about 4,000 a month | 5,000 |
-| Internet egress from the VM | the HTTP requests and TCP acknowledgements of the feed polls | 1 GB a month |
+| Class A operations (uploads) | about 4,200 a month | 5,000 |
+| Internet egress from the VM | about 0.9 to 1.2 GB a month (measured, see below) | 1 GB a month |
 
-The uploads are the Class A operations: `status.json` 2,880 a month, `heartbeat.json` 720, and
-about 15 packed days a day (450). Do not make the status or heartbeat timers faster.
+The uploads are the Class A operations. In a 31-day month, `status.json` makes 2,976,
+`heartbeat.json` 744, and about 15 packed days a day make 465: about 4,200 in total.
+Each upload is one JSON API request. Do not use `gcloud storage cp` for a new object on the VM,
+because it also lists the bucket (a second Class A operation). Do not make the timers faster.
 The bucket has no soft delete, so a replaced `status.json` does not stay as billed storage.
 Traffic from the VM to Cloud Storage in the same region has no charge.
+
+The VM sends the HTTP requests and the TCP acknowledgements of about 28 feed polls a minute.
+On 2026-11-26 at night in Malaysia, the Cloud Monitoring metric
+`compute.googleapis.com/instance/network/sent_bytes_count` showed 22 to 36 KB a minute.
+That is 0.95 to 1.55 GB in a 30-day month, so egress can go over the free 1 GB.
+Internet egress costs about USD 0.12 a GB above the free tier. Busy hours have more vehicles,
+so measure the metric over a full day. If it is too high, set `REALTIME_INTERVAL` to 40 or 60.
 
 A budget alert on the billing account sends an email when the cost goes above the limit.

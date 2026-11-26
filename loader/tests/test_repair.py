@@ -289,16 +289,22 @@ def test_cli_repair_writes_only_in_mode_on(conn, warehouse_dsn, tmp_path, monkey
                         ("B_DIR", tmp_path / "b"), ("TRANSIT_STATE", tmp_path / "state")):
         monkeypatch.setenv(name, str(value))
     monkeypatch.delenv("TRANSIT_REPAIR", raising=False)
+    kept = tmp_path / "state" / "replaced" / FEED
+    expired, recent = write_day(kept / "2026-10-01.tar.xz", [], "a"), write_day(kept / "2026-11-01.tar.xz", [], "a")
+    for path, age in ((expired, 31), (recent, 29)):
+        os.utime(path, ((datetime.now(UTC) - timedelta(days=age)).timestamp(),) * 2)
 
     assert main(["repair", "--mode", "off"]) == 0
     assert main(["repair", "--days", "1"]) == 0
     assert len(member_names(a)) == 2
     assert ledger(conn) == []
+    assert expired.exists()
 
     monkeypatch.setenv("TRANSIT_REPAIR", "on")
     assert main(["repair", "--days", "1"]) == 0
     assert member_names(a) == names
     assert ledger(conn) == [(day, "repaired", 1)]
+    assert sorted(p.name for p in kept.iterdir()) == ["2026-11-01.tar.xz", f"{day}.tar.xz"]
 
 
 def test_cli_repair_on_without_transit_state_exits_before_touching_anything(monkeypatch, capsys):

@@ -29,6 +29,7 @@ log = logging.getLogger(__name__)
 GAP_S = 600
 NEAR_S = 60
 LOOKBACK_DAYS = 7
+KEEP_DAYS = 30
 QUIET_S = 300
 TMP_SUFFIX = ".repair.tmp"
 
@@ -277,6 +278,15 @@ def apply(conn: psycopg.Connection, state: Path, decision: Decision) -> RepairRe
         merged = Path(work) / path.name
         write_merged(path, b_path, decision.fill, merged, Path(work))
         return _install(conn, result, merged, path)
+
+
+def prune_replaced(state: Path, feed: str, now: datetime) -> None:
+    """Delete A's originals kept more than KEEP_DAYS ago; a kept copy's mtime is the time it was kept."""
+    cutoff = (now - timedelta(days=KEEP_DAYS)).timestamp()
+    for kept in (state / "replaced" / feed).glob("*.tar.xz"):
+        if kept.stat().st_mtime < cutoff:
+            log.info("prune %s", kept)
+            kept.unlink()
 
 
 def _record(conn: psycopg.Connection, result: RepairResult) -> RepairResult:

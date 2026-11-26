@@ -11,7 +11,7 @@ import psycopg
 from transit_loader.db import connect
 from transit_loader.feeds import REALTIME_FEEDS, Feed, archive_path
 from transit_loader.realtime import load_realtime, missing_archive_dates
-from transit_loader.repair import LOOKBACK_DAYS, FetchB, Mode, RepairResult, apply, decide, read_ledger
+from transit_loader.repair import LOOKBACK_DAYS, FetchB, Mode, RepairResult, apply, decide, prune_replaced, read_ledger
 from transit_loader.static import load_static
 
 log = logging.getLogger("transit-load")
@@ -45,10 +45,12 @@ def repair_jobs(conn: psycopg.Connection, root: Path, feed: str, args: argparse.
         return []
     now = datetime.now(UTC)
     state = Path(os.environ["TRANSIT_STATE"]) if args.mode == Mode.ON else None
+    days = [now.date() - timedelta(days=n) for n in range(1, args.days + 1)]
+    jobs: list[Job] = [partial(repair_day, conn, root, feed, d, fetch_b_from_dir, now=now, state=state) for d in days]
     if state is None:
         log.info("repair %s: dry run, decisions are logged and not applied", feed)
-    days = [now.date() - timedelta(days=n) for n in range(1, args.days + 1)]
-    return [partial(repair_day, conn, root, feed, d, fetch_b_from_dir, now=now, state=state) for d in days]
+        return jobs
+    return [partial(prune_replaced, state, feed, now), *jobs]
 
 
 def repair_day(

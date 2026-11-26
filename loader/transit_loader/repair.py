@@ -175,8 +175,11 @@ def write_merged(a_path: Path, b_path: Path, fill: Sequence[str], out: Path, wor
 
     a_seq, merged = _digests(a_path), _digests(out)
     names = [name for name, _ in merged]
-    rest = iter(merged)
-    if not all(m in rest for m in a_seq):
+    kept = 0
+    for member in merged:
+        if kept < len(a_seq) and member == a_seq[kept]:
+            kept += 1
+    if kept != len(a_seq):
         raise RuntimeError(f"{out}: A's members are not all kept in order")
     if sorted(names) != sorted([n for n, _ in a_seq] + list(fill)) or names != sorted(names):
         raise RuntimeError(f"{out}: merged member names are wrong or out of order")

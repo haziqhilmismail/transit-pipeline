@@ -116,8 +116,8 @@ if [ "$want" != "$(cat "$STATE/image_id" 2>/dev/null)" ] || ! docker image inspe
   echo "$want" >"$STATE/image_id"
 fi
 
-# Same settings as Harith's deploy/compose.hoarder.yaml, except REALTIME_INTERVAL=40, because
-# at 30 s the polls send more than the free 1 GB of egress a month.
+# Same settings as Harith's deploy/compose.hoarder.yaml, except REALTIME_INTERVAL=40, to keep
+# the traffic down (see "Cost" in the README).
 # Host network: the default Docker bridge has no IPv6, and IPv6 is the only way out.
 run=(--name gtfs-hoarder-ts --restart unless-stopped --user 1000:1000
   --security-opt no-new-privileges:true --cap-drop ALL --read-only --tmpfs /tmp

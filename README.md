@@ -183,6 +183,7 @@ Measured with `docker stats` (2 s samples) on 2026-11-25:
 | Backfill load (3 feeds a day) | 300 MiB | 279 MiB | 482 MiB | 154 MiB | 1.15 GiB |
 | Full dbt build in Airflow (6 service dates) | 305 MiB | 276 MiB | 599 MiB | 162 MiB | 1.27 GiB |
 | Full dbt build again, final limits | 305 MiB | 278 MiB | 589 MiB | 225 MiB | 1.30 GiB |
+| Startup ingest + asset-triggered build, then full dbt build (2026-11-26) | 296 MiB | 279 MiB | 633 MiB | 216 MiB | 1.34 GiB |
 
 ## Credit and licence
 

@@ -58,8 +58,10 @@ def repair_day(
 ) -> RepairResult | None:
     """Decide one day and apply the decision. state None is a dry run: decide only, write nothing."""
     decision = decide(read_ledger(conn, feed, day), root, feed, day, fetch_b, now=now)
-    if decision is None or state is None:
-        return decision and decision.result
+    if decision is None:
+        return None
+    if state is None:
+        return decision.result
     return apply(conn, state, decision)
 
 
@@ -82,7 +84,7 @@ def main(argv: list[str] | None = None) -> int:
     rp.add_argument("--feed", action="append")
     rp.set_defaults(jobs=repair_jobs, feeds=None)
     args = parser.parse_args(argv)
-    if args.command == "repair" and args.mode == Mode.ON and "TRANSIT_STATE" not in os.environ:
+    if args.command == "repair" and args.mode == Mode.ON and not os.environ.get("TRANSIT_STATE"):
         parser.error("repair --mode on needs TRANSIT_STATE, the folder that keeps A's original files")
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 

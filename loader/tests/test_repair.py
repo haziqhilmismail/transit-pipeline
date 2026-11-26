@@ -321,8 +321,12 @@ def test_cli_repair_writes_only_in_mode_on(conn, warehouse_dsn, tmp_path, monkey
     assert sorted(p.name for p in kept.iterdir()) == ["2026-11-01.tar.xz", f"{day}.tar.xz"]
 
 
-def test_cli_repair_on_without_transit_state_exits_before_touching_anything(monkeypatch, capsys):
-    monkeypatch.delenv("TRANSIT_STATE", raising=False)
+@pytest.mark.parametrize("state", [None, ""])
+def test_cli_repair_on_without_transit_state_exits_before_touching_anything(monkeypatch, capsys, state):
+    if state is None:
+        monkeypatch.delenv("TRANSIT_STATE", raising=False)
+    else:
+        monkeypatch.setenv("TRANSIT_STATE", state)
     monkeypatch.setenv("TRANSIT_REPAIR", "on")
 
     with pytest.raises(SystemExit) as exit:

@@ -6,7 +6,7 @@ with gaps as (
         sum(gap_s_in_day) as gap_s,
         max(gap_s) as longest_gap_s
     from {{ ref('fct_feed_gap') }}
-    where {{ api_window(90) }}
+    where {{ api_window(var('api_days_long')) }}
     group by feed, service_date
 ),
 
@@ -22,7 +22,7 @@ routes as (
         sum(on_headway_runs) as on_headway_runs,
         max(feed_uptime_pct) as feed_uptime_pct
     from {{ ref('fct_route_day') }}
-    where {{ api_window(90) }}
+    where {{ api_window(var('api_days_long')) }}
     group by feed, service_date
 )
 
@@ -42,4 +42,4 @@ select
 from {{ ref('int_service_dates') }} d
 left join gaps g on g.feed = d.feed and g.service_date = d.service_date
 left join routes r on r.feed = d.feed and r.service_date = d.service_date
-where d.has_realtime and {{ api_window(90, 'd.service_date') }}
+where d.has_realtime and {{ api_window(var('api_days_long'), 'd.service_date') }}

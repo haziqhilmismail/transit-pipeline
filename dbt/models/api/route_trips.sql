@@ -16,4 +16,4 @@ select
     headway_ratio,
     headway_class
 from {{ ref('fct_trip') }}
-where {{ api_window(35) }}
+where {{ api_window(var('api_days_short')) }}

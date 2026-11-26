@@ -10,4 +10,4 @@ select
     h.active_trips::int as active_trips
 from {{ ref('fct_route_hour_activity') }} h
 left join {{ ref('dim_route') }} r on r.feed = h.feed and r.route_id = h.route_id
-where {{ api_window(35, 'h.service_date') }}
+where {{ api_window(var('api_days_short'), 'h.service_date') }}

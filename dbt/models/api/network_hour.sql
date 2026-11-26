@@ -6,5 +6,5 @@ select
     count(*)::int as routes_active,
     sum(active_trips)::int as active_trips
 from {{ ref('fct_route_hour_activity') }}
-where {{ api_window(35) }}
+where {{ api_window(var('api_days_short')) }}
 group by feed, service_date, hour_start_myt

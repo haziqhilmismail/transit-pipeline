@@ -2,4 +2,4 @@
 
 select feed, route_id, service_date, departure_at
 from {{ ref('int_scheduled_departures') }}
-where {{ api_window(35) }}
+where {{ api_window(var('api_days_short')) }}

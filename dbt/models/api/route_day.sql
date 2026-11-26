@@ -16,4 +16,4 @@ select
     d.feed_uptime_pct
 from {{ ref('fct_route_day') }} d
 left join {{ ref('dim_route') }} r on r.feed = d.feed and r.route_id = d.route_id
-where {{ api_window(90, 'd.service_date') }}
+where {{ api_window(var('api_days_long'), 'd.service_date') }}

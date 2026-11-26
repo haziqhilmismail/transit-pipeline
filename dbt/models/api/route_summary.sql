@@ -8,7 +8,7 @@ with days as (
         sum(observed_trips) as observed_trips,
         sum(scheduled_trips) as scheduled_trips
     from {{ ref('fct_route_day') }}
-    where {{ api_window(28) }}
+    where {{ api_window(var('api_days_summary')) }}
     group by feed, route_id
 ),
 
@@ -20,7 +20,7 @@ headway as (
         count(*) filter (where headway_class = 'on_headway') as on_headway_runs,
         percentile_cont(0.5) within group (order by headway_ratio) filter (where has_headway_class) as median_headway_ratio
     from {{ ref('fct_trip') }}
-    where {{ api_window(28) }}
+    where {{ api_window(var('api_days_summary')) }}
     group by feed, route_id
 )
 

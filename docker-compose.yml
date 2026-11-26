@@ -87,10 +87,12 @@ services:
     mem_limit: 240m
 
   # Public stats API: PostgREST on the api schema. No host port; stats-web is the only way in.
+  # Profile "stats": `make up` starts both and checks API_DB_PASSWORD and STATS_SITE_HOSTS first.
   stats-api:
+    profiles: [stats]
     image: postgrest/postgrest:v16.6
     environment:
-      PGRST_DB_URI: postgres://authenticator:${API_DB_PASSWORD:?set API_DB_PASSWORD in .env}@postgres:5432/warehouse
+      PGRST_DB_URI: postgres://authenticator:${API_DB_PASSWORD:-}@postgres:5432/warehouse
       PGRST_DB_SCHEMAS: api
       PGRST_DB_ANON_ROLE: web_anon
       PGRST_DB_MAX_ROWS: "2000"
@@ -108,9 +110,10 @@ services:
 
   # Serves the dashboard page and passes /api/* to stats-api. The Cloudflare tunnel will point here.
   stats-web:
+    profiles: [stats]
     image: caddy:2.11.9-alpine
     environment:
-      SITE_HOSTS: ${STATS_SITE_HOSTS:?set STATS_SITE_HOSTS in .env}
+      SITE_HOSTS: ${STATS_SITE_HOSTS:-}
     volumes:
       - ./stats/caddy:/etc/caddy:ro
       - ${DASHBOARD_SITE:-../transit-dashboard/site}:/srv:ro

@@ -10,8 +10,10 @@ comma := ,
 .PHONY: up api-roles down test backfill dbt-build docs psql logs stats
 
 up:
-	$(COMPOSE) up -d --build --wait
+	@test -n "$(API_DB_PASSWORD)" -a -n "$(STATS_SITE_HOSTS)" || (echo "set API_DB_PASSWORD and STATS_SITE_HOSTS in .env" && exit 2)
+	$(COMPOSE) up -d --wait postgres
 	$(MAKE) api-roles
+	$(COMPOSE) --profile stats up -d --build --wait
 
 # Roles for PostgREST. Idempotent: run it again after a password change in .env.
 api-roles:

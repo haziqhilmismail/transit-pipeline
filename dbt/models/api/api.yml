@@ -12,11 +12,6 @@ models:
       - name: attribution
         data_tests: [not_null]
 
-  - name: network_day
-    description: One row per feed and service date (last 90 days). Totals over the routes of fct_route_day.
-    data_tests:
-      - unique_combination: {arguments: {columns: [feed, service_date]}}
-
   - name: route_day
     description: fct_route_day with the route names (last 90 days).
     data_tests:
@@ -57,8 +52,9 @@ models:
 
   - name: feed_day
     description: >
-      One row per feed and service date with realtime data (last 90 days). gap_s is the time inside the day with no
-      new snapshot for more than feed_gap_s. feed_uptime_pct is over the scheduled service span (null without a schedule).
+      One row per feed and service date with realtime data. gap_s is the time inside the day with no new snapshot
+      for more than feed_gap_s. The route columns are totals over fct_route_day; they are null on a day that is not
+      rt_usable. feed_uptime_pct is over the scheduled service span (null without a schedule).
     data_tests:
       - unique_combination: {arguments: {columns: [feed, service_date]}}
 

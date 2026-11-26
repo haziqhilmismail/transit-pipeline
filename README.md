@@ -149,6 +149,11 @@ Feeds:
 
 ## Design choices
 
+- **Airflow is more than this job needs.** The job is one daily load and one `dbt build` on one host. Cron or a
+  systemd timer can do it, because the loader loads all missed days and dbt reruns are safe. The cron line is
+  `transit-load realtime && dbt build`. That uses almost no RAM, and Airflow uses about 1.3 GB.
+  This project uses Airflow and dbt together as a learning exercise. It tries Assets, backfills, retries and
+  data-aware scheduling on real data.
 - **Batch, not a stream.** The source is a closed file per feed per day. A stream (Kafka or Redpanda) would add
   a broker and RAM, but no new data. A stream becomes useful only if the pipeline reads the live API, or if a
   consumer needs results within minutes. Both are out of scope, and the first one is not allowed from this host.

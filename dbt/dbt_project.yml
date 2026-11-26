@@ -32,6 +32,10 @@ models:
         +pre-hook: "{{ window_delete() }}"
     gold:
       +schema: gold
+    # Tables, not views: a view on gold is dropped (cascade) each time dbt replaces a gold table.
+    api:
+      +schema: api
+      +grants: {select: [web_anon]}
 
 seeds:
   transit:
@@ -41,3 +45,5 @@ on-run-start:
   - "create table if not exists silver.build_log (feed text, service_date date, built_at timestamptz not null, primary key (feed, service_date))"
 on-run-end:
   - "{{ stamp_built_dates(results) }}"
+  # PostgREST caches the schema; dbt replaces the api tables.
+  - "notify pgrst, 'reload schema'"

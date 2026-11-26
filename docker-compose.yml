@@ -114,6 +114,7 @@ services:
     volumes:
       - ./stats/caddy:/etc/caddy:ro
       - ${DASHBOARD_SITE:-../transit-dashboard/site}:/srv:ro
+      - ./stats/placeholder:/placeholder:ro
     ports:
       - "127.0.0.1:8302:80"
     depends_on: [stats-api]

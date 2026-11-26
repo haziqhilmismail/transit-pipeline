@@ -116,7 +116,8 @@ The stack also serves a read-only HTTP API on the gold data. The
 
 - `stats-api` is PostgREST. It serves each table of the `api` schema as `/<table>`. It has no host port.
 - `stats-web` is Caddy. It serves the dashboard page from `DASHBOARD_SITE` and sends `/api/*` to `stats-api`.
-  It listens on `127.0.0.1:8302` only.
+  It listens on `127.0.0.1:8302` only. If `DASHBOARD_SITE` has no `index.html`, it serves the one-line page in
+  `stats/placeholder/`. If the `DASHBOARD_SITE` folder does not exist, Docker makes it as an empty folder owned by root.
 - dbt builds the `api` tables from gold (`dbt/models/api/`). They are tables, not views. A view on a gold table
   is dropped each time dbt replaces that table, and a failed run would then leave the API empty.
 

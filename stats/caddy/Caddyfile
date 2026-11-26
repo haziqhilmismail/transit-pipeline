@@ -30,7 +30,13 @@
 		}
 
 		handle {
+			# Without a dashboard checkout (no /srv/index.html), serve the one-line placeholder.
+			@no_site not file {
+				root /srv
+				try_files /index.html
+			}
 			root * /srv
+			root @no_site /placeholder
 			header Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; frame-ancestors 'none'"
 			# Always check for a newer page.
 			header Cache-Control "no-cache"

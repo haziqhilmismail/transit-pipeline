@@ -319,8 +319,8 @@ def _durable_copy(src: Path, dst: Path) -> None:
     try:
         shutil.copyfile(src, tmp)
         _fsync(tmp)
-        os.utime(tmp)
         os.replace(tmp, dst)
+        os.utime(dst)
     finally:
         tmp.unlink(missing_ok=True)
     _fsync(dst.parent)

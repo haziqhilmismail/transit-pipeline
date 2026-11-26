@@ -68,8 +68,8 @@ def test_a_file_replaced_during_a_load_is_loaded_as_read_and_reloaded_next_run(c
     newer = write_tar_xz(archive_root / "newer.tar.xz", {"20261120T000021Z.pb": feed_message(1795132800, [])})
 
     def replace_then_read(f):
-        os.utime(newer)  # as the repair does just before its rename
         os.replace(newer, path)
+        os.utime(path)  # as the repair does right after its rename
         return read_archive(f)
 
     monkeypatch.setattr(realtime, "read_archive", replace_then_read)

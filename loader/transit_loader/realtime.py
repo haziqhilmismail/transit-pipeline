@@ -162,5 +162,5 @@ def missing_archive_dates(
 
 
 def _replaced_since_load(path: Path, sha256: str, loaded_at: datetime) -> bool:
-    # The mtime check keeps a normal run from hashing every loaded day.
-    return path.stat().st_mtime > loaded_at.timestamp() and file_sha256(path) != sha256
+    # The mtime check keeps a normal run from hashing every loaded day; 5 s of slack covers clock and mtime granularity.
+    return path.stat().st_mtime > loaded_at.timestamp() - 5 and file_sha256(path) != sha256

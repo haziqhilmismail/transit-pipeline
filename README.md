@@ -113,7 +113,9 @@ version that is already loaded is not loaded again. A dbt run deletes and rebuil
 
 The pipeline reads files only. It never calls an API.
 
-- The source is the local archive of the `gtfs-hoarder` service. Harith owns that service and its archive.
+- The source is the local archive of the `gtfs-hoarder` service. It is part of Harith's KL Transit project
+  ([github.com/harithilmi](https://github.com/harithilmi), [transit.harithilmi.com](https://transit.harithilmi.com)).
+  Harith owns that service and its archive.
   The pipeline mounts only `realtime/` and `static/`, read-only. It does not change, restart, or read any other part of it.
 - Do not poll `api.data.gov.my` from this host. The hoarder already uses the rate limit of the API.
 - The hoarder writes each UTC day to an open `.tar` file. At about 00:08 UTC it closes the day as `.tar.xz`.

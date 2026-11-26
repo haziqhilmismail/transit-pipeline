@@ -16,6 +16,7 @@ up:
 	$(COMPOSE) --profile stats up -d --build --wait
 
 # Roles for PostgREST. Idempotent: run it again after a password change in .env.
+# dbt grants SELECT on the api tables to web_anon, so dbt-build needs the roles first.
 api-roles:
 	@$(COMPOSE) exec -T postgres psql -q -v ON_ERROR_STOP=1 -v pw="$(API_DB_PASSWORD)" -U $(POSTGRES_USER) -d airflow < docker/api-roles.sql
 
@@ -32,7 +33,7 @@ backfill:
 	$(EXEC) airflow backfill create --dag-id transit_ingest --from-date $(FROM) --to-date $(TO)T23:59:59 \
 		--max-active-runs 1 --reprocess-behavior completed
 
-dbt-build:
+dbt-build: api-roles
 	$(call DBT,build --vars '{"start_date": "$(FROM)"$(comma) "end_date": "$(TO)"}')
 
 docs:

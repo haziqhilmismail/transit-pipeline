@@ -11,7 +11,7 @@ import psycopg
 from transit_loader.db import connect
 from transit_loader.feeds import REALTIME_FEEDS, Feed, archive_path
 from transit_loader.realtime import load_realtime, missing_archive_dates
-from transit_loader.repair import LOOKBACK_DAYS, Mode, repair_day
+from transit_loader.repair import LOOKBACK_DAYS, FetchB, Mode, RepairResult, apply, decide, read_ledger
 from transit_loader.static import load_static
 
 log = logging.getLogger("transit-load")
@@ -44,12 +44,21 @@ def repair_jobs(conn: psycopg.Connection, root: Path, feed: str, args: argparse.
     if args.mode == Mode.OFF:
         return []
     now = datetime.now(UTC)
-    state = Path(os.environ["TRANSIT_STATE"]) if "TRANSIT_STATE" in os.environ else None
-    return [
-        partial(repair_day, conn, root, state, feed, now.date() - timedelta(days=n), fetch_b_from_dir,
-                now=now, dry_run=args.mode == Mode.DRY)
-        for n in range(1, args.days + 1)
-    ]
+    state = Path(os.environ["TRANSIT_STATE"]) if args.mode == Mode.ON else None
+    if state is None:
+        log.info("repair %s: dry run, decisions are logged and not applied", feed)
+    days = [now.date() - timedelta(days=n) for n in range(1, args.days + 1)]
+    return [partial(repair_day, conn, root, feed, d, fetch_b_from_dir, now=now, state=state) for d in days]
+
+
+def repair_day(
+    conn: psycopg.Connection, root: Path, feed: str, day: date, fetch_b: FetchB, *, now: datetime, state: Path | None
+) -> RepairResult | None:
+    """Decide one day and apply the decision. state None is a dry run: decide only, write nothing."""
+    decision = decide(read_ledger(conn, feed, day), root, feed, day, fetch_b, now=now)
+    if decision is None or state is None:
+        return decision and decision.result
+    return apply(conn, state, decision)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -66,11 +75,13 @@ def main(argv: list[str] | None = None) -> int:
     st.add_argument("--feed", action="append", type=Feed, choices=list(Feed))
     st.set_defaults(jobs=static_jobs, feeds=list(Feed))
     rp = commands.add_parser("repair", help="fill outage gaps in closed archive days from collector B's copy")
-    rp.add_argument("--mode", type=Mode, choices=list(Mode), default=Mode(os.environ.get("TRANSIT_REPAIR", "dry")))
+    rp.add_argument("--mode", type=Mode, choices=list(Mode), default=os.environ.get("TRANSIT_REPAIR", "dry"))
     rp.add_argument("--days", type=int, default=LOOKBACK_DAYS + 1, help="closed days to visit, newest first")
     rp.add_argument("--feed", action="append")
     rp.set_defaults(jobs=repair_jobs, feeds=None)
     args = parser.parse_args(argv)
+    if args.command == "repair" and args.mode == Mode.ON and "TRANSIT_STATE" not in os.environ:
+        parser.error("repair --mode on needs TRANSIT_STATE, the folder that keeps A's original files")
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
     root = Path(os.environ["TRANSIT_ARCHIVE_ROOT"])

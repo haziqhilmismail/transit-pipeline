@@ -14,12 +14,13 @@ import subprocess
 import tarfile
 import tempfile
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass, replace
+from dataclasses import asdict, dataclass, replace
 from datetime import UTC, date, datetime, timedelta
 from enum import StrEnum
 from pathlib import Path
 
 import psycopg
+from psycopg.rows import dict_row
 
 from transit_loader.feeds import archive_members, archive_path, file_sha256, parse_stamp
 
@@ -75,15 +76,28 @@ class Plan:
     gap_s_after: int
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 class RepairResult:
+    """One (feed, day) decision, as stored in bronze.rt_repair."""
+
     feed: str
     archive_date: date
     outcome: Outcome
     members_added: int = 0
     gap_s_before: int = 0
     gap_s_after: int = 0
-    dry_run: bool = False
+    a_sha256: str | None = None
+    b_sha256: str | None = None
+    merged_sha256: str | None = None
+
+
+@dataclass(frozen=True)
+class Decision:
+    result: RepairResult
+    path: Path
+    b_path: Path | None = None
+    """B's file to merge or copy in; None means there is nothing to write, only the ledger row."""
+    fill: tuple[str, ...] = ()
 
 
 def stamps_of(names: Sequence[str], day: date) -> list[datetime]:
@@ -178,33 +192,120 @@ def _untouchable(packed: Path, day: date, now: datetime) -> bool:
     return packed.exists() and now.timestamp() - packed.stat().st_mtime < QUIET_S
 
 
-def _record(conn: psycopg.Connection, result: RepairResult, **shas: str | None) -> RepairResult:
-    if not result.dry_run:
-        conn.execute(
-            "insert into bronze.rt_repair (feed, archive_date, outcome, a_sha256, b_sha256, merged_sha256,"
-            " members_added, gap_s_before, gap_s_after)"
-            " values (%s, %s, %s, %s, %s, %s, %s, %s, %s)"
-            " on conflict (feed, archive_date) do update set outcome = excluded.outcome,"
-            " a_sha256 = excluded.a_sha256, b_sha256 = excluded.b_sha256, merged_sha256 = excluded.merged_sha256,"
-            " members_added = excluded.members_added, gap_s_before = excluded.gap_s_before,"
-            " gap_s_after = excluded.gap_s_after, decided_at = now()",
-            (
-                result.feed, result.archive_date, result.outcome,
-                shas.get("a_sha256"), shas.get("b_sha256"), shas.get("merged_sha256"),
-                result.members_added, result.gap_s_before, result.gap_s_after,
-            ),
+def read_ledger(conn: psycopg.Connection, feed: str, day: date) -> RepairResult | None:
+    with conn.cursor(row_factory=dict_row) as cur:
+        row = cur.execute(
+            "select feed, archive_date, outcome, members_added, gap_s_before, gap_s_after,"
+            " a_sha256, b_sha256, merged_sha256 from bronze.rt_repair where feed = %s and archive_date = %s",
+            (feed, day),
+        ).fetchone()
+    return RepairResult(**{**row, "outcome": Outcome(row["outcome"])}) if row else None
+
+
+def decide(
+    prior: RepairResult | None, root: Path, feed: str, day: date, fetch_b: FetchB, *, now: datetime
+) -> Decision | None:
+    """What to do with one (feed, day), from the ledger row and the files; writes nothing.
+
+    None: the row is final already, or the hoarder may still write the day.
+    """
+    if prior and prior.outcome in FINAL:
+        return None
+    path = archive_path(root, feed, day)
+    if _untouchable(path, day, now):
+        return None
+    if prior and prior.outcome == Outcome.REPAIRING and path.exists() and file_sha256(path) == prior.merged_sha256:
+        done = Outcome.COPIED if prior.a_sha256 is None else Outcome.REPAIRED
+        return Decision(replace(prior, outcome=done), path)
+
+    a_sha = file_sha256(path) if path.exists() else None
+    try:
+        a_names = member_names(path) if a_sha else []
+        gaps = find_gaps(stamps_of(a_names, day), day)
+    except Malformed as e:
+        log.warning("%s %s: A is malformed: %s", feed, day, e)
+        return Decision(RepairResult(feed=feed, archive_date=day, outcome=Outcome.SKIPPED_MALFORMED, a_sha256=a_sha), path)
+    if not gaps:
+        return Decision(RepairResult(feed=feed, archive_date=day, outcome=Outcome.CLEAN, a_sha256=a_sha), path)
+    gap_s = sum(g.seconds for g in gaps)
+
+    b_path = fetch_b(feed, day)
+    if b_path is None:
+        late = Outcome.UNFILLABLE if (now.date() - day).days > LOOKBACK_DAYS else Outcome.WAITING
+        result = RepairResult(
+            feed=feed, archive_date=day, outcome=late, gap_s_before=gap_s, gap_s_after=gap_s, a_sha256=a_sha
         )
+        return Decision(result, path)
+    unchanged = RepairResult(
+        feed=feed, archive_date=day, outcome=Outcome.NO_FILL, gap_s_before=gap_s, gap_s_after=gap_s,
+        a_sha256=a_sha, b_sha256=file_sha256(b_path),
+    )
+    try:
+        plan = plan_repair(a_names, member_names(b_path), day)
+    except Malformed as e:
+        log.warning("%s %s: B is malformed: %s", feed, day, e)
+        return Decision(replace(unchanged, outcome=Outcome.SKIPPED_MALFORMED), path)
+    if not plan.fill:
+        return Decision(unchanged, path)
+    result = replace(
+        unchanged,
+        outcome=Outcome.REPAIRED if a_sha else Outcome.COPIED,
+        members_added=len(plan.fill),
+        gap_s_before=plan.gap_s_before,
+        gap_s_after=plan.gap_s_after,
+    )
+    return Decision(result, path, b_path, plan.fill)
+
+
+def apply(conn: psycopg.Connection, state: Path, decision: Decision) -> RepairResult:
+    """Record the decision and, when it has B's file, write the day. A's original is kept under `state`."""
+    result, path, b_path = decision.result, decision.path, decision.b_path
+    if b_path is None:
+        return _record(conn, result)
+    if result.outcome == Outcome.COPIED:
+        return _install(conn, result, b_path, path)
+    _durable_copy(path, state / "replaced" / result.feed / path.name)
+    with tempfile.TemporaryDirectory(dir=state) as work:
+        merged = Path(work) / path.name
+        write_merged(path, b_path, decision.fill, merged, Path(work))
+        return _install(conn, result, merged, path)
+
+
+def _record(conn: psycopg.Connection, result: RepairResult) -> RepairResult:
+    conn.execute(
+        "insert into bronze.rt_repair (feed, archive_date, outcome, a_sha256, b_sha256, merged_sha256,"
+        " members_added, gap_s_before, gap_s_after)"
+        " values (%(feed)s, %(archive_date)s, %(outcome)s, %(a_sha256)s, %(b_sha256)s, %(merged_sha256)s,"
+        " %(members_added)s, %(gap_s_before)s, %(gap_s_after)s)"
+        " on conflict (feed, archive_date) do update set outcome = excluded.outcome,"
+        " a_sha256 = excluded.a_sha256, b_sha256 = excluded.b_sha256, merged_sha256 = excluded.merged_sha256,"
+        " members_added = excluded.members_added, gap_s_before = excluded.gap_s_before,"
+        " gap_s_after = excluded.gap_s_after, decided_at = now()",
+        asdict(result),
+    )
     return result
 
 
-def _install(conn: psycopg.Connection, result: RepairResult, tmp: Path, path: Path, **shas: str | None) -> RepairResult:
-    """Intent row, rename, final row: a crash at any point leaves either A's file or the verified new one."""
-    _fsync(tmp)
-    shas["merged_sha256"] = file_sha256(tmp)
-    _record(conn, replace(result, outcome=Outcome.REPAIRING), **shas)
-    os.replace(tmp, path)
-    _fsync(path.parent)
-    return _record(conn, result, **shas)
+def _install(conn: psycopg.Connection, result: RepairResult, src: Path, path: Path) -> RepairResult:
+    """Intent row, then rename: a crash at any point leaves either A's file or the verified new one."""
+    result = replace(result, merged_sha256=file_sha256(src))
+    _record(conn, replace(result, outcome=Outcome.REPAIRING))
+    _durable_copy(src, path)
+    return _record(conn, result)
+
+
+def _durable_copy(src: Path, dst: Path) -> None:
+    """Copy, fsync, rename into place, fsync the folder. dst's mtime is the rename time, which the loader's mtime check needs."""
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    tmp = dst.with_name(dst.name + TMP_SUFFIX)
+    try:
+        shutil.copyfile(src, tmp)
+        _fsync(tmp)
+        os.utime(tmp)
+        os.replace(tmp, dst)
+    finally:
+        tmp.unlink(missing_ok=True)
+    _fsync(dst.parent)
 
 
 def _fsync(path: Path) -> None:
@@ -213,80 +314,3 @@ def _fsync(path: Path) -> None:
         os.fsync(fd)
     finally:
         os.close(fd)
-
-
-def repair_day(
-    conn: psycopg.Connection,
-    root: Path,
-    state: Path | None,
-    feed: str,
-    day: date,
-    fetch_b: FetchB,
-    *,
-    now: datetime,
-    dry_run: bool,
-) -> RepairResult | None:
-    """Decide one (feed, day) and, unless dry_run, act on it. None: final already, or the hoarder may still write it."""
-    row = conn.execute(
-        "select outcome, a_sha256, merged_sha256, members_added, gap_s_before, gap_s_after"
-        " from bronze.rt_repair where feed = %s and archive_date = %s",
-        (feed, day),
-    ).fetchone()
-    if row and row[0] in FINAL:
-        return None
-    path = archive_path(root, feed, day)
-    if _untouchable(path, day, now):
-        return None
-    if row and row[0] == Outcome.REPAIRING and path.exists() and file_sha256(path) == row[2]:
-        done = Outcome.COPIED if row[1] is None else Outcome.REPAIRED
-        result = RepairResult(feed, day, done, *row[3:], dry_run=dry_run)
-        return _record(conn, result, a_sha256=row[1], merged_sha256=row[2])
-
-    a_sha = file_sha256(path) if path.exists() else None
-    try:
-        a_names = member_names(path) if a_sha else []
-        gaps = find_gaps(stamps_of(a_names, day), day)
-    except Malformed as e:
-        log.warning("%s %s: A is malformed: %s", feed, day, e)
-        return _record(conn, RepairResult(feed, day, Outcome.SKIPPED_MALFORMED, dry_run=dry_run), a_sha256=a_sha)
-    gap_s = sum(g.seconds for g in gaps)
-    if not gaps:
-        return _record(conn, RepairResult(feed, day, Outcome.CLEAN, dry_run=dry_run), a_sha256=a_sha)
-
-    b_path = fetch_b(feed, day)
-    if b_path is None:
-        late = Outcome.UNFILLABLE if (now.date() - day).days > LOOKBACK_DAYS else Outcome.WAITING
-        return _record(conn, RepairResult(feed, day, late, 0, gap_s, gap_s, dry_run), a_sha256=a_sha)
-    b_sha = file_sha256(b_path)
-    try:
-        plan = plan_repair(a_names, member_names(b_path), day)
-    except Malformed as e:
-        log.warning("%s %s: B is malformed: %s", feed, day, e)
-        result = RepairResult(feed, day, Outcome.SKIPPED_MALFORMED, 0, gap_s, gap_s, dry_run)
-        return _record(conn, result, a_sha256=a_sha, b_sha256=b_sha)
-    if not plan.fill:
-        result = RepairResult(feed, day, Outcome.NO_FILL, 0, gap_s, gap_s, dry_run)
-        return _record(conn, result, a_sha256=a_sha, b_sha256=b_sha)
-
-    done = Outcome.REPAIRED if a_sha else Outcome.COPIED
-    result = RepairResult(feed, day, done, len(plan.fill), plan.gap_s_before, plan.gap_s_after, dry_run)
-    if dry_run:
-        log.info("%s %s: would add %d members, %s to %s", feed, day, len(plan.fill), plan.fill[0], plan.fill[-1])
-        return result
-    if state is None:
-        raise ValueError("TRANSIT_STATE must be set to repair")
-    tmp = path.with_name(path.name + TMP_SUFFIX)
-    try:
-        if a_sha:
-            keep = state / "replaced" / feed / path.name
-            keep.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(path, keep.with_name(keep.name + ".tmp"))
-            _fsync(keep.with_name(keep.name + ".tmp"))
-            os.replace(keep.with_name(keep.name + ".tmp"), keep)
-            with tempfile.TemporaryDirectory(dir=state) as work:
-                write_merged(path, b_path, plan.fill, tmp, Path(work))
-        else:
-            shutil.copyfile(b_path, tmp)
-        return _install(conn, result, tmp, path, a_sha256=a_sha, b_sha256=b_sha)
-    finally:
-        tmp.unlink(missing_ok=True)

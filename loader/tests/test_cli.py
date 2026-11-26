@@ -36,7 +36,8 @@ def test_realtime_without_date_loads_each_closed_day_once_from_the_earliest_date
     assert loaded_archives(conn) == first
 
 
-def test_static_skips_a_corrupt_zip_and_a_zip_without_a_fetch_time(env, conn):
+def test_static_skips_a_corrupt_zip_and_a_zip_without_a_fetch_time(env, conn, monkeypatch):
+    monkeypatch.setenv("TRANSIT_REPAIR", "not-a-mode")  # only the repair command reads it
     (env / "static" / KL / "20261120T010000Z_cccc.zip").write_bytes(b"PK\x03\x04 truncated")
     (env / "static" / KL / "latest.zip").write_bytes(b"")
 

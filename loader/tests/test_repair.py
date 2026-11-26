@@ -1,3 +1,4 @@
+import hashlib
 import io
 import os
 import shutil
@@ -8,8 +9,9 @@ from pathlib import Path
 import pytest
 
 from transit_loader import repair
-from transit_loader.cli import main
-from transit_loader.repair import Malformed, Outcome, RepairResult, member_names, plan_repair, repair_day, write_merged
+from transit_loader.cli import main, repair_day
+from transit_loader.feeds import file_sha256
+from transit_loader.repair import Malformed, Outcome, RepairResult, member_names, plan_repair, write_merged
 
 DAY = date(2026, 11, 20)
 NOW = datetime(2026, 11, 21, 1, tzinfo=UTC)
@@ -104,10 +106,12 @@ def archive(tmp_path):
 
 
 def run(conn, tmp_path, b: Path | None, *, now=NOW, day=DAY, dry_run=False) -> RepairResult | None:
-    return repair_day(
-        conn, tmp_path / "data", tmp_path / "state", FEED, day, lambda feed, d: b,
-        now=now, dry_run=dry_run,
-    )
+    state = None if dry_run else tmp_path / "state"
+    return repair_day(conn, tmp_path / "data", FEED, day, lambda feed, d: b, now=now, state=state)
+
+
+def counts(result: RepairResult) -> tuple:
+    return result.outcome, result.members_added, result.gap_s_before, result.gap_s_after
 
 
 def ledger(conn) -> list[tuple]:
@@ -122,7 +126,13 @@ def test_repair_fills_the_gap_once_and_keeps_a_s_original(conn, archive):
     result = run(conn, tmp_path, b)
     rerun = run(conn, tmp_path, b)
 
-    assert result == RepairResult(FEED, DAY, Outcome.REPAIRED, 116, 3600, 0)
+    assert counts(result) == (Outcome.REPAIRED, 116, 3600, 0)
+    assert (result.a_sha256, result.b_sha256, result.merged_sha256) == (
+        hashlib.sha256(original).hexdigest(), file_sha256(b), file_sha256(a)
+    )
+    assert conn.execute("select a_sha256, b_sha256, merged_sha256 from bronze.rt_repair").fetchone() == (
+        result.a_sha256, result.b_sha256, result.merged_sha256
+    )
     assert rerun is None
     assert len(member_names(a)) == len(A_NAMES) + 116
     assert payloads(a)[1200:1203] == [b"a:20261120T100000Z.pb", b"b:20261120T100110Z.pb", b"b:20261120T100140Z.pb"]
@@ -138,7 +148,7 @@ def test_dry_run_writes_nothing(conn, archive):
 
     result = run(conn, tmp_path, b, dry_run=True)
 
-    assert result == RepairResult(FEED, DAY, Outcome.REPAIRED, 116, 3600, 0, dry_run=True)
+    assert counts(result) == (Outcome.REPAIRED, 116, 3600, 0)
     assert a.read_bytes() == original
     assert ledger(conn) == []
 
@@ -230,7 +240,7 @@ def test_a_crash_after_the_rename_is_recorded_as_repaired(conn, archive, monkeyp
 
     result = run(conn, tmp_path, b)
 
-    assert result == RepairResult(FEED, DAY, Outcome.REPAIRED, 116, 3600, 0)
+    assert counts(result) == (Outcome.REPAIRED, 116, 3600, 0)
     assert a.read_bytes() == merged
     assert len(member_names(a)) == len(A_NAMES) + 116
     assert ledger(conn) == [(DAY, "repaired", 116)]
@@ -288,3 +298,14 @@ def test_cli_repair_writes_only_in_mode_on(conn, warehouse_dsn, tmp_path, monkey
     assert main(["repair", "--days", "1"]) == 0
     assert member_names(a) == names
     assert ledger(conn) == [(day, "repaired", 1)]
+
+
+def test_cli_repair_on_without_transit_state_exits_before_touching_anything(monkeypatch, capsys):
+    monkeypatch.delenv("TRANSIT_STATE", raising=False)
+    monkeypatch.setenv("TRANSIT_REPAIR", "on")
+
+    with pytest.raises(SystemExit) as exit:
+        main(["repair"])
+
+    assert exit.value.code == 2
+    assert "needs TRANSIT_STATE" in capsys.readouterr().err

@@ -1,0 +1,63 @@
+version: 2
+
+# The public read-only API. PostgREST serves each model here as /api/<name>.
+# Window sizes are the api_days_* vars in dbt_project.yml.
+# Never add vehicle_id, trip_id, trip_instance_id or any other per-vehicle key.
+
+models:
+  - name: meta
+    description: One row. The newest service date, the feeds, and the data credit that every page must show.
+    columns:
+      - name: data_through
+        data_tests: [not_null]
+      - name: attribution
+        data_tests: [not_null]
+
+  - name: route_day
+    description: fct_route_day with the route names (last api_days_long days).
+    data_tests:
+      - unique_combination: {arguments: {columns: [feed, route_id, service_date]}}
+
+  - name: route_summary
+    description: One row per feed and route over the last api_days_summary service dates.
+    data_tests:
+      - unique_combination: {arguments: {columns: [feed, route_id]}}
+
+  - name: headway_day
+    description: Observed runs per headway class, feed and service date (last api_days_long days).
+    data_tests:
+      - unique_combination: {arguments: {columns: [feed, service_date, headway_class]}}
+
+  - name: headway_hist
+    description: Runs with a headway class per bin of headway_ratio (width 0.25, 3 and more in one bin), last api_days_summary days.
+    data_tests:
+      - unique_combination: {arguments: {columns: [feed, ratio_from]}}
+
+  - name: route_trips
+    description: One row per observed run of a route on a service date (last api_days_short days). trip_no is the order of departure.
+    data_tests:
+      - unique_combination: {arguments: {columns: [feed, route_id, service_date, trip_no]}}
+
+  - name: route_schedule
+    description: Scheduled departures of a route on a service date (last api_days_short days).
+
+  - name: route_hour
+    description: Active vehicles and runs per route and MYT hour (last api_days_short days).
+    data_tests:
+      - unique_combination: {arguments: {columns: [feed, route_id, service_date, hour_start_myt]}}
+
+  - name: network_hour
+    description: Active runs and routes per feed and MYT hour (last api_days_short days).
+    data_tests:
+      - unique_combination: {arguments: {columns: [feed, service_date, hour_start_myt]}}
+
+  - name: feed_day
+    description: >
+      One row per feed and service date with realtime data (last api_days_long days). gap_s is the time inside the day with no new snapshot
+      for more than feed_gap_s. The route columns are totals over fct_route_day; they are null on a day that is not
+      rt_usable. feed_uptime_pct is over the scheduled service span (null without a schedule).
+    data_tests:
+      - unique_combination: {arguments: {columns: [feed, service_date]}}
+
+  - name: feed_gap
+    description: Each feed gap (last api_days_long days), as in fct_feed_gap.

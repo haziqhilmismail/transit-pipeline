@@ -46,7 +46,8 @@ services:
     ports:
       - "127.0.0.1:5442:5432"
     healthcheck:
-      test: ["CMD", "pg_isready", "-U", "${POSTGRES_USER}", "-d", "airflow"]
+      # warehouse, not airflow: the warehouse DB exists only after the init script, and api-roles needs it.
+      test: ["CMD-SHELL", "psql -U $$POSTGRES_USER -d warehouse -c 'select 1'"]
       interval: 5s
       retries: 20
     mem_limit: 320m
@@ -85,6 +86,60 @@ services:
     command: dag-processor
     depends_on: *after-init
     mem_limit: 240m
+
+  # Public stats API: PostgREST on the api schema. No host port; stats-web is the only way in.
+  # Profile "stats": `make up` starts both and checks API_DB_PASSWORD and STATS_SITE_HOSTS first.
+  stats-api:
+    profiles: [stats]
+    image: postgrest/postgrest:v16.6
+    environment:
+      PGRST_DB_URI: postgres://authenticator:${API_DB_PASSWORD:-}@postgres:5432/warehouse
+      PGRST_DB_SCHEMAS: api
+      PGRST_DB_ANON_ROLE: web_anon
+      PGRST_DB_MAX_ROWS: "2000"
+      PGRST_DB_POOL: "3"
+      PGRST_DB_POOL_ACQUISITION_TIMEOUT: "5"
+      PGRST_DB_AGGREGATES_ENABLED: "false"
+      PGRST_OPENAPI_MODE: disabled
+    depends_on:
+      postgres:
+        condition: service_healthy
+    read_only: true
+    cap_drop: [ALL]
+    mem_limit: 64m
+    restart: unless-stopped
+
+  # Serves the dashboard page and passes /api/* to stats-api. stats-tunnel points here.
+  stats-web:
+    profiles: [stats]
+    image: caddy:2.11.9-alpine
+    environment:
+      SITE_HOSTS: ${STATS_SITE_HOSTS:-}
+    volumes:
+      - ./stats/caddy:/etc/caddy:ro
+      - ${DASHBOARD_SITE:-../transit-dashboard/site}:/srv:ro
+      - ./stats/placeholder:/placeholder:ro
+    ports:
+      - "127.0.0.1:8302:80"
+    depends_on: [stats-api]
+    read_only: true
+    tmpfs: [/config, /data]
+    cap_drop: [ALL]
+    cap_add: [NET_BIND_SERVICE]
+    mem_limit: 48m
+    restart: unless-stopped
+
+  # Cloudflare tunnel to stats-web. STATS_TUNNEL_DIR holds config.yml and the tunnel credentials (not in git).
+  stats-tunnel:
+    profiles: [stats]
+    image: cloudflare/cloudflared:2026.11.0
+    user: "1000"
+    command: tunnel --no-autoupdate --config /etc/cloudflared/config.yml run
+    volumes:
+      - ${STATS_TUNNEL_DIR:-./stats/tunnel}:/etc/cloudflared:ro
+    depends_on: [stats-web]
+    mem_limit: 64m
+    restart: unless-stopped
 
 volumes:
   pgdata:

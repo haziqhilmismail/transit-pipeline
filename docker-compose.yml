@@ -27,6 +27,7 @@ x-airflow: &airflow
     - airflow-logs:/opt/airflow/logs
     - ${TRANSIT_DATA}/realtime:/data/realtime:ro
     - ${TRANSIT_DATA}/static:/data/static:ro
+    - repair-state:/opt/airflow/repair-state
   depends_on: &airflow-deps
     postgres:
       condition: service_healthy
@@ -77,6 +78,12 @@ services:
   airflow-scheduler:
     <<: *airflow
     command: scheduler
+    # Repair runs only here (LocalExecutor). B_DIR is in the state volume; the fetch of B's days will fill it.
+    environment:
+      <<: *airflow-env
+      TRANSIT_REPAIR: ${TRANSIT_REPAIR:-dry}
+      TRANSIT_STATE: /opt/airflow/repair-state
+      B_DIR: /opt/airflow/repair-state/b
     depends_on: *after-init
     # LocalExecutor runs every task here, dbt included.
     mem_limit: 704m
@@ -144,3 +151,4 @@ services:
 volumes:
   pgdata:
   airflow-logs:
+  repair-state:

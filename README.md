@@ -109,6 +109,38 @@ To rebuild silver and gold for a date range without a reload, trigger `transit_t
 You can run every command more than one time. A reload replaces that archive day in one transaction. A static
 version that is already loaded is not loaded again. A dbt run deletes and rebuilds the service dates in its window.
 
+## Gap repair
+
+Tower loses power now and then, and Harith's hoarder (collector A) misses snapshots while it's down. Collector B
+runs the same hoarder elsewhere, so it usually has the snapshots A missed. `transit-load repair` copies them into
+A's archive.
+
+For each feed it looks at the last 8 closed UTC days. A day gets repaired when A has a gap longer than 10 minutes
+and B has snapshots inside that gap. B's snapshots go in only where A has nothing within 60 seconds of them. The
+repaired day replaces A's `.tar.xz` in one rename, and the loader then loads that day again because its hash
+changed. A day that A doesn't have at all is copied from B whole.
+
+The repair stays away from any day the hoarder may still write: today, a day with an open `.tar` or a temp file,
+and a day packed less than 5 minutes ago. It changes a day at most once. Every decision goes into the
+`bronze.rt_repair` table, so you can see what it did and why. If B's copy of a day is missing or broken, the day
+waits and is tried again on the next run, until it falls out of the 8-day window.
+
+`TRANSIT_REPAIR` in `.env` sets the mode:
+
+- `dry` (the default) decides and logs, and writes nothing.
+- `on` writes the repaired days. It keeps A's original file in the `repair-state` volume for 30 days.
+- `off` does nothing.
+
+Run it by hand from the scheduler container:
+
+```sh
+docker compose exec airflow-scheduler transit-load repair
+docker compose exec airflow-scheduler transit-load repair --mode dry --feed ktmb --days 3
+```
+
+Two things aren't wired up yet. The scheduler mounts A's archive read-only, so `on` can't write until that mount
+changes. And nothing fetches B's days into `B_DIR` yet, so every day with a gap waits. There's no DAG for it either.
+
 ## Stats API
 
 The stack also serves a read-only HTTP API on the gold data. The

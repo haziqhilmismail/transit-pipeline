@@ -5,7 +5,9 @@ FROM apache/airflow:3.3.2-python3.12
 USER root
 # The repair compresses with the same `xz -6` as the hoarder.
 RUN apt-get update && apt-get install -y --no-install-recommends xz-utils && rm -rf /var/lib/apt/lists/*
-RUN mkdir -p /opt/dbt /opt/loader && chown airflow: /opt/dbt /opt/loader
+# repair-state: a new named volume copies this folder's owner and mode.
+RUN mkdir -p /opt/dbt /opt/loader /opt/airflow/repair-state \
+ && chown airflow: /opt/dbt /opt/loader /opt/airflow/repair-state && chmod g+rwx /opt/airflow/repair-state
 USER airflow
 RUN uv venv /opt/dbt \
  && uv pip install --python /opt/dbt/bin/python --no-cache "dbt-core~=1.12.0" "dbt-postgres~=1.11.0"

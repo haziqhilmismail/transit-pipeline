@@ -42,7 +42,12 @@
     {% for node in graph.nodes.values() if node.resource_type == 'model' and 'windowed' in node.tags %}
         {% do windowed.append(node.unique_id) %}
     {% endfor %}
-    {% set failed = results | selectattr('status', 'in', ['error', 'fail', 'skipped']) | list %}
+    {# The api tables are a copy for the public API; their failures must not hold back the core stamp. #}
+    {% set core = [] %}
+    {% for r in results if 'api' not in r.node.tags %}
+        {% do core.append(r) %}
+    {% endfor %}
+    {% set failed = core | selectattr('status', 'in', ['error', 'fail', 'skipped']) | list %}
     {% set built = results | selectattr('node.unique_id', 'in', windowed) | selectattr('status', 'equalto', 'success') | list %}
     {% if failed or built | length < windowed | length %}
         {{ return('select 1') }}

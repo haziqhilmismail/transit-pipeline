@@ -1,14 +1,23 @@
-import tarfile
+import hashlib
 from collections.abc import Iterator
 from dataclasses import astuple, dataclass
 from datetime import date, datetime
 from pathlib import Path, PurePosixPath
+from typing import BinaryIO
 
 import psycopg
 from google.protobuf.message import DecodeError
 from google.transit import gtfs_realtime_pb2
 
-from transit_loader.feeds import Feed, closed_archive_dates, closed_archive_path, file_sha256, parse_stamp
+from transit_loader.feeds import (
+    Feed,
+    archive_members,
+    archive_path,
+    closed_archive_dates,
+    closed_archive_path,
+    file_sha256,
+    parse_stamp,
+)
 
 
 @dataclass(frozen=True)
@@ -74,11 +83,10 @@ def parse_snapshot(member_name: str, payload: bytes) -> tuple[Snapshot, list[Pos
     return snapshot, positions
 
 
-def read_archive(path: Path) -> Iterator[tuple[Snapshot, list[Position]] | None]:
-    with tarfile.open(path, "r|xz") as tar:
-        for member in tar:
-            if member.isfile() and member.name.endswith(".pb"):
-                yield parse_snapshot(member.name, tar.extractfile(member).read())
+def read_archive(archive: Path | BinaryIO) -> Iterator[tuple[Snapshot, list[Position]] | None]:
+    for info, payload in archive_members(archive):
+        if info.isfile() and info.name.endswith(".pb"):
+            yield parse_snapshot(info.name, payload)
 
 
 @dataclass(frozen=True)
@@ -107,17 +115,21 @@ def load_realtime(
             cur.execute(
                 f"delete from bronze.{table} where feed = %s and archive_date = %s", (feed, archive_date)
             )
-        with cur.copy(f"copy bronze.rt_vehicle_position ({POSITION_COLUMNS}) from stdin") as copy:
-            for parsed in read_archive(path):
-                # rt_snapshot is keyed on fetched_at, so a repeated member name is a bad snapshot.
-                if parsed is None or parsed[0].fetched_at in snapshots:
-                    n_bad += 1
-                    continue
-                snapshot, positions = parsed
-                snapshots[snapshot.fetched_at] = snapshot
-                for p in positions:
-                    copy.write_row((feed, archive_date, snapshot.fetched_at, *astuple(p)))
-                n_positions += len(positions)
+        # Hash and read one open file, opened after loaded_at: a file renamed in later is newer than loaded_at.
+        with path.open("rb") as f:
+            sha256 = hashlib.file_digest(f, "sha256").hexdigest()
+            f.seek(0)
+            with cur.copy(f"copy bronze.rt_vehicle_position ({POSITION_COLUMNS}) from stdin") as copy:
+                for parsed in read_archive(f):
+                    # rt_snapshot is keyed on fetched_at, so a repeated member name is a bad snapshot.
+                    if parsed is None or parsed[0].fetched_at in snapshots:
+                        n_bad += 1
+                        continue
+                    snapshot, positions = parsed
+                    snapshots[snapshot.fetched_at] = snapshot
+                    for p in positions:
+                        copy.write_row((feed, archive_date, snapshot.fetched_at, *astuple(p)))
+                    n_positions += len(positions)
         with cur.copy(
             "copy bronze.rt_snapshot (feed, archive_date, fetched_at, header_ts, n_entities) from stdin"
         ) as copy:
@@ -127,7 +139,7 @@ def load_realtime(
             "insert into bronze.rt_archive"
             " (feed, archive_date, archive_sha256, n_snapshots, n_bad_snapshots, n_positions)"
             " values (%s, %s, %s, %s, %s, %s)",
-            (feed, archive_date, file_sha256(path), len(snapshots), n_bad, n_positions),
+            (feed, archive_date, sha256, len(snapshots), n_bad, n_positions),
         )
     return RtLoadResult(feed, archive_date, len(snapshots), n_bad, n_positions)
 
@@ -135,5 +147,20 @@ def load_realtime(
 def missing_archive_dates(
     conn: psycopg.Connection, root: Path, feed: Feed, *, today_utc: date, earliest: date
 ) -> list[date]:
-    loaded = {row[0] for row in conn.execute("select archive_date from bronze.rt_archive where feed = %s", (feed,))}
-    return [d for d in closed_archive_dates(root, feed, today_utc=today_utc, earliest=earliest) if d not in loaded]
+    """Closed days not loaded yet, and loaded days whose file was replaced since (the repair rewrites a packed day)."""
+    loaded = {
+        row[0]: row[1:]
+        for row in conn.execute(
+            "select archive_date, archive_sha256, loaded_at from bronze.rt_archive where feed = %s", (feed,)
+        )
+    }
+    return [
+        d
+        for d in closed_archive_dates(root, feed, today_utc=today_utc, earliest=earliest)
+        if d not in loaded or _replaced_since_load(archive_path(root, feed, d), *loaded[d])
+    ]
+
+
+def _replaced_since_load(path: Path, sha256: str, loaded_at: datetime) -> bool:
+    # The mtime check keeps a normal run from hashing every loaded day; 5 s of slack covers clock and mtime granularity.
+    return path.stat().st_mtime > loaded_at.timestamp() - 5 and file_sha256(path) != sha256

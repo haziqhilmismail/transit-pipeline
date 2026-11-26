@@ -114,6 +114,9 @@ models:
       - name: headway_runs
         data_type: int
         description: Runs with `fct_trip.has_headway_class`.
+      - name: on_headway_runs
+        data_type: int
+        description: Runs of headway_runs that are on_headway.
       - name: pct_on_headway
         data_type: numeric
         description: Share of headway_runs that are on_headway. NULL when no run qualifies (often, given coverage).

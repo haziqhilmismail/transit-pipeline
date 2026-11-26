@@ -109,6 +109,115 @@ To rebuild silver and gold for a date range without a reload, trigger `transit_t
 You can run every command more than one time. A reload replaces that archive day in one transaction. A static
 version that is already loaded is not loaded again. A dbt run deletes and rebuilds the service dates in its window.
 
+## Gap repair
+
+Tower loses power now and then, and Harith's hoarder (collector A) misses snapshots while it's down. Collector B
+runs the same hoarder elsewhere, so it usually has the snapshots A missed. `transit-load repair` copies them into
+A's archive.
+
+For each feed it looks at the last 8 closed UTC days. A day gets repaired when A has a gap longer than 10 minutes
+and B has snapshots inside that gap. B's snapshots go in only where A has nothing within 60 seconds of them. The
+repaired day replaces A's `.tar.xz` in one rename, and the loader then loads that day again because its hash
+changed. A day that A doesn't have at all is copied from B whole.
+
+The repair stays away from any day the hoarder may still write: today, a day with an open `.tar` or a temp file,
+and a day packed less than 5 minutes ago. It changes a day at most once. Every decision goes into the
+`bronze.rt_repair` table, so you can see what it did and why. If B's copy of a day is missing or broken, the day
+waits and is tried again on the next run, until it falls out of the 8-day window.
+
+`TRANSIT_REPAIR` in `.env` sets the mode:
+
+- `dry` (the default) decides and logs, and writes nothing.
+- `on` writes the repaired days. It keeps A's original file in the `repair-state` volume for 30 days.
+- `off` does nothing.
+
+Run it by hand from the scheduler container:
+
+```sh
+docker compose exec airflow-scheduler transit-load repair
+docker compose exec airflow-scheduler transit-load repair --mode dry --feed ktmb --days 3
+```
+
+Two things aren't wired up yet. The scheduler mounts A's archive read-only, so `on` can't write until that mount
+changes. And nothing fetches B's days into `B_DIR` yet, so every day with a gap waits. There's no DAG for it either.
+
+## Stats API
+
+The stack also serves a read-only HTTP API on the gold data. The
+[transit-dashboard](https://github.com/haziqhilmismail/transit-dashboard) page and Harith's per-route panel read it.
+
+- `stats-api` is PostgREST. It serves each table of the `api` schema as `/<table>`. It has no host port.
+- `stats-web` is Caddy. It serves the dashboard page from `DASHBOARD_SITE` and sends `/api/*` to `stats-api`.
+  It listens on `127.0.0.1:8302` only. If `DASHBOARD_SITE` has no `index.html`, it serves the one-line page in
+  `stats/placeholder/`. If the `DASHBOARD_SITE` folder does not exist, Docker makes it as an empty folder owned by root.
+- `stats-tunnel` is cloudflared. It runs the Cloudflare tunnel that sends the public host name to `stats-web`, so
+  no port is open to the internet. Its `config.yml` and credentials file sit in `STATS_TUNNEL_DIR`, outside git,
+  and `config.yml` must point at `/etc/cloudflared/...` paths and at `http://stats-web:80`.
+- dbt builds the `api` tables from gold (`dbt/models/api/`). They are tables, not views. A view on a gold table
+  is dropped each time dbt replaces that table, and a failed run would then leave the API empty.
+
+### Set it up
+
+1. Clone the dashboard repo next to this repo, or set `DASHBOARD_SITE` in `.env` to its `site/` folder.
+2. Set `API_DB_PASSWORD` and `STATS_SITE_HOSTS` in `.env`. Set `STATS_TUNNEL_DIR` too if you want the public tunnel; leave it empty and `make up` skips it.
+3. Make the database roles. `make up` and `make dbt-build` also do this step. You can run it again.
+
+   ```sh
+   make api-roles
+   ```
+
+4. Build the API tables, then start the services. They are in the compose profile `stats`. Start them with
+   `make up` only, because it checks the values from step 2 and makes the roles first. The other `make`
+   targets do not need those values.
+
+   ```sh
+   make dbt-build
+   make up
+   ```
+
+5. Get the first rows:
+
+   ```sh
+   curl 'http://127.0.0.1:8302/api/route_day?feed=eq.prasarana-rapid-bus-kl&limit=3'
+   ```
+
+Each `dbt build` sends `notify pgrst, 'reload schema'` at the end, so PostgREST sees new tables and columns.
+
+### Tables
+
+Each table keeps a fixed number of days up to `data_through`, the newest service date with realtime data. The
+`api_days_long` (90), `api_days_short` (35) and `api_days_summary` (28) vars in `dbt/dbt_project.yml` set the
+numbers. No table has `vehicle_id`, `trip_id` or another key of one vehicle or one trip.
+
+| Table | One row per | Days |
+|---|---|---|
+| `meta` | (one row): `data_from`, `data_through`, `feeds`, `attribution`, `licence_url` | - |
+| `route_day` | feed, route, service date: `fct_route_day` with the route names | 90 |
+| `route_summary` | feed, route: totals of the last 28 days | 28 |
+| `headway_day` | feed, service date, headway class: runs | 90 |
+| `headway_hist` | feed, bin of `headway_ratio` (width 0.25; 3 and more in one bin): runs | 28 |
+| `route_trips` | feed, route, service date, `trip_no` (order of departure): times, duration, headway | 35 |
+| `route_schedule` | feed, route, service date, scheduled departure | 35 |
+| `route_hour` | feed, route, service date, MYT hour: active vehicles and runs | 35 |
+| `network_hour` | feed, service date, MYT hour: active routes and runs | 35 |
+| `feed_day` | feed, service date: number of gaps, gap seconds, longest gap, routes, runs, coverage, `on_headway_runs`, `pct_on_headway`, uptime | 90 |
+| `feed_gap` | each feed gap | 90 |
+
+Use the PostgREST filters, for example `?feed=eq.ktmb&service_date=gte.2026-11-20&order=service_date`.
+
+### Limits
+
+| Layer | Rule |
+|---|---|
+| Postgres | `web_anon` (no login) can only `SELECT` the `api` tables. Its statements stop after 2 s. PostgREST runs each GET in a read-only transaction. `authenticator` has at most 5 connections. |
+| PostgREST | At most 2,000 rows for each request, a pool of 3 connections, no OpenAPI document, no aggregates. |
+| Caddy | GET and HEAD only (else 405). An unknown `Host` gets 421. At most 8 requests in flight to PostgREST. A request waits at most 2 s for a free slot, then gets 503. PostgREST must start its answer in 5 s. |
+| Caddy request headers | The URL alone sets the answer, so a cache can use the URL as its key. Caddy sets `Accept: application/json` and removes `Range`, `Range-Unit`, `Prefer`, `Authorization`, `Accept-Profile` and `Content-Profile`. A client cannot ask for an exact count (`Prefer`), CSV, or a single object. |
+| Caddy response headers | 2xx `/api/*` answers have `Cache-Control: public, max-age=600`. Errors, 405 and 421 have `Cache-Control: no-store`. The page has `Cache-Control: no-cache`. `/api/*` answers have `Access-Control-Allow-Origin: https://transit.harithilmi.com`. There is no CORS preflight (OPTIONS gets 405), so another origin can only send a GET without custom headers. |
+
+Memory limits: `stats-api` 64 MB, `stats-web` 48 MB. Measured peak under 750 requests (15 rounds of 50 at the same
+time, 2,000 rows each, all 200) on 2026-11-26: `stats-api` 36 MiB, `stats-web` 20 MiB.
+
 ## Data source and its limits
 
 The pipeline reads files only. It never calls an API.
@@ -173,8 +282,8 @@ See [docs/design.md](docs/design.md) for the full design and the changes made du
 
 ## Memory
 
-The host has about 4.8 GB free. The stack has hard limits that add up to 1.6 GB: Postgres 320 MB,
-API server 336 MB, scheduler 704 MB, DAG processor 240 MB. The one-time `airflow-init` container has 512 MB and exits before the others start.
+The host has about 4.8 GB free. The stack has hard limits that add up to 1.71 GB: Postgres 320 MB,
+API server 336 MB, scheduler 704 MB, DAG processor 240 MB, stats API 64 MB, stats web 48 MB. The one-time `airflow-init` container has 512 MB and exits before the others start.
 
 Measured with `docker stats` (2 s samples) on 2026-11-25:
 

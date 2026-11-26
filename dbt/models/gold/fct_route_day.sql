@@ -63,6 +63,7 @@ select
     coalesce(s.scheduled_trips, 0)::int as scheduled_trips,
     round(coalesce(o.observed_trips, 0)::numeric / nullif(s.scheduled_trips, 0), 3)::numeric as coverage,
     coalesce(o.headway_runs, 0)::int as headway_runs,
+    coalesce(o.on_headway_runs, 0)::int as on_headway_runs,
     round(100.0 * o.on_headway_runs / nullif(o.headway_runs, 0), 1)::numeric as pct_on_headway,
     round(o.median_headway_ratio::numeric, 3)::numeric as median_headway_ratio,
     u.feed_uptime_pct::numeric as feed_uptime_pct

@@ -57,7 +57,7 @@ Loads are idempotent by replacement. `load_realtime` deletes and copies one (fee
 |---|---|---|
 | `dim_route` | (feed, route_id) | route_code, names, route_type, in_static. All static versions, plus RT-only routes. |
 | `fct_trip` (contract) | one observed run | departed_at, observed and scheduled headway, headway_ratio, pattern_coverage, headway_class |
-| `fct_route_day` (contract) | (feed, service_date, route_id) | observed_trips, scheduled_trips, coverage, pct_on_headway, median_headway_ratio, feed_uptime_pct |
+| `fct_route_day` (contract) | (feed, service_date, route_id) | observed_trips, scheduled_trips, coverage, headway_runs, on_headway_runs, pct_on_headway, median_headway_ratio, feed_uptime_pct |
 | `fct_route_hour_activity` | (feed, route_id, service_date, hour_start_myt) | active_vehicles, active_trips |
 | `fct_feed_gap` | (feed, service_date, gap_start_at) | gap_s, gap_s_in_day |
 

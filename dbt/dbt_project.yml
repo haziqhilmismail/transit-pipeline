@@ -15,6 +15,10 @@ vars:
   headway_match_tolerance_s: 1800
   service_day_cutoff_h: 3
   max_unresolved_trip_share: 0.15
+  # Days each api table keeps, up to the newest service date with realtime data.
+  api_days_long: 90
+  api_days_short: 35
+  api_days_summary: 28
   # Peninsular Malaysia; ktmb and mrtfeeder send positions near (0, 0).
   valid_bbox: {min_lat: 0.8, max_lat: 7.5, min_lon: 99.5, max_lon: 104.6}
 
@@ -32,6 +36,11 @@ models:
         +pre-hook: "{{ window_delete() }}"
     gold:
       +schema: gold
+    # Tables, not views: a view on gold is dropped (cascade) each time dbt replaces a gold table.
+    api:
+      +schema: api
+      +tags: api
+      +grants: {select: [web_anon]}
 
 seeds:
   transit:
@@ -41,3 +50,5 @@ on-run-start:
   - "create table if not exists silver.build_log (feed text, service_date date, built_at timestamptz not null, primary key (feed, service_date))"
 on-run-end:
   - "{{ stamp_built_dates(results) }}"
+  # PostgREST caches the schema; dbt replaces the api tables.
+  - "notify pgrst, 'reload schema'"

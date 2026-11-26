@@ -1,10 +1,13 @@
+import os
 from datetime import UTC, date, datetime
 
 import pytest
 from conftest import BUS, feed_message, write_tar_xz
 
 from transit_loader.feeds import ArchiveNotClosed, Feed, closed_archive_path
-from transit_loader.realtime import Position, Snapshot, load_realtime, parse_snapshot, read_archive
+from transit_loader import realtime
+from transit_loader.feeds import file_sha256
+from transit_loader.realtime import Position, Snapshot, load_realtime, missing_archive_dates, parse_snapshot, read_archive
 
 KL = Feed.RAPID_BUS_KL
 
@@ -56,3 +59,23 @@ def test_load_counts_unnamed_and_repeated_members_as_bad_snapshots(conn, tmp_pat
     result = load_realtime(conn, tmp_path, KL, date(2026, 11, 20), today_utc=date(2026, 11, 21))
 
     assert (result.n_snapshots, result.n_bad_snapshots, result.n_positions) == (1, 2, 1)
+
+
+@pytest.mark.db
+def test_a_file_replaced_during_a_load_is_loaded_as_read_and_reloaded_next_run(conn, archive_root, monkeypatch):
+    path = archive_root / "realtime" / KL / "2026-11-20.tar.xz"
+    old_sha = file_sha256(path)
+    newer = write_tar_xz(archive_root / "newer.tar.xz", {"20261120T000021Z.pb": feed_message(1795132800, [])})
+
+    def replace_then_read(f):
+        os.utime(newer)  # as the repair does just before its rename
+        os.replace(newer, path)
+        return read_archive(f)
+
+    monkeypatch.setattr(realtime, "read_archive", replace_then_read)
+    result = load_realtime(conn, archive_root, KL, date(2026, 11, 20), today_utc=date(2026, 11, 21))
+
+    assert (result.n_snapshots, result.n_bad_snapshots) == (3, 1)
+    assert conn.execute("select archive_sha256 from bronze.rt_archive").fetchone() == (old_sha,)
+    today, earliest = date(2026, 11, 21), date(2026, 11, 19)
+    assert missing_archive_dates(conn, archive_root, KL, today_utc=today, earliest=earliest) == [date(2026, 11, 20)]

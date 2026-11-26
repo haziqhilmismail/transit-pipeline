@@ -1,3 +1,4 @@
+import hashlib
 from collections.abc import Iterator
 from dataclasses import astuple, dataclass
 from datetime import date, datetime
@@ -114,17 +115,21 @@ def load_realtime(
             cur.execute(
                 f"delete from bronze.{table} where feed = %s and archive_date = %s", (feed, archive_date)
             )
-        with cur.copy(f"copy bronze.rt_vehicle_position ({POSITION_COLUMNS}) from stdin") as copy:
-            for parsed in read_archive(path):
-                # rt_snapshot is keyed on fetched_at, so a repeated member name is a bad snapshot.
-                if parsed is None or parsed[0].fetched_at in snapshots:
-                    n_bad += 1
-                    continue
-                snapshot, positions = parsed
-                snapshots[snapshot.fetched_at] = snapshot
-                for p in positions:
-                    copy.write_row((feed, archive_date, snapshot.fetched_at, *astuple(p)))
-                n_positions += len(positions)
+        # Hash and read one open file, opened after loaded_at: a file renamed in later is newer than loaded_at.
+        with path.open("rb") as f:
+            sha256 = hashlib.file_digest(f, "sha256").hexdigest()
+            f.seek(0)
+            with cur.copy(f"copy bronze.rt_vehicle_position ({POSITION_COLUMNS}) from stdin") as copy:
+                for parsed in read_archive(f):
+                    # rt_snapshot is keyed on fetched_at, so a repeated member name is a bad snapshot.
+                    if parsed is None or parsed[0].fetched_at in snapshots:
+                        n_bad += 1
+                        continue
+                    snapshot, positions = parsed
+                    snapshots[snapshot.fetched_at] = snapshot
+                    for p in positions:
+                        copy.write_row((feed, archive_date, snapshot.fetched_at, *astuple(p)))
+                    n_positions += len(positions)
         with cur.copy(
             "copy bronze.rt_snapshot (feed, archive_date, fetched_at, header_ts, n_entities) from stdin"
         ) as copy:
@@ -134,7 +139,7 @@ def load_realtime(
             "insert into bronze.rt_archive"
             " (feed, archive_date, archive_sha256, n_snapshots, n_bad_snapshots, n_positions)"
             " values (%s, %s, %s, %s, %s, %s)",
-            (feed, archive_date, file_sha256(path), len(snapshots), n_bad, n_positions),
+            (feed, archive_date, sha256, len(snapshots), n_bad, n_positions),
         )
     return RtLoadResult(feed, archive_date, len(snapshots), n_bad, n_positions)
 

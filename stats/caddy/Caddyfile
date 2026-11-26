@@ -1,0 +1,40 @@
+:80 {
+	# route keeps the order below; Caddy would otherwise run handle blocks before respond.
+	route {
+		# Names this site answers to. Any other Host header (a DNS rebinding page, for example) gets 421.
+		@unknown_host not host {$SITE_HOSTS}
+		respond @unknown_host 421
+
+		@writes not method GET HEAD
+		header @writes Allow "GET, HEAD"
+		respond @writes 405
+
+		header {
+			X-Content-Type-Options nosniff
+			Referrer-Policy no-referrer
+		}
+
+		handle_path /api/* {
+			reverse_proxy stats-api:3000 {
+				# No `Prefer: count=exact`: an exact count scans the whole table.
+				header_up -Prefer
+				# The data changes once a day. Cloudflare and browsers may keep each answer for 10 minutes.
+				header_down Cache-Control "public, max-age=600"
+				# Harith's site (a different origin) reads the per-route panel. Replaces PostgREST's own CORS header.
+				header_down Access-Control-Allow-Origin "https://transit.harithilmi.com"
+				transport http {
+					max_conns_per_host 8
+					response_header_timeout 5s
+				}
+			}
+		}
+
+		handle {
+			root * /srv
+			header Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; frame-ancestors 'none'"
+			# Always check for a newer page.
+			header Cache-Control "no-cache"
+			file_server
+		}
+	}
+}

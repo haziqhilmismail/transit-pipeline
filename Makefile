@@ -10,7 +10,8 @@ comma := ,
 .PHONY: up api-roles down test backfill dbt-build docs psql logs stats
 
 up:
-	@test -n "$(API_DB_PASSWORD)" -a -n "$(STATS_SITE_HOSTS)" || (echo "set API_DB_PASSWORD and STATS_SITE_HOSTS in .env" && exit 2)
+	@test -n "$(API_DB_PASSWORD)" -a -n "$(STATS_SITE_HOSTS)" -a -d "$(STATS_TUNNEL_DIR)" || \
+		(echo "set API_DB_PASSWORD, STATS_SITE_HOSTS and STATS_TUNNEL_DIR (an existing folder) in .env" && exit 2)
 	$(COMPOSE) up -d --wait postgres
 	$(MAKE) api-roles
 	$(COMPOSE) --profile stats up -d --build --wait

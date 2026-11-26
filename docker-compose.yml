@@ -109,7 +109,7 @@ services:
     mem_limit: 64m
     restart: unless-stopped
 
-  # Serves the dashboard page and passes /api/* to stats-api. The Cloudflare tunnel will point here.
+  # Serves the dashboard page and passes /api/* to stats-api. stats-tunnel points here.
   stats-web:
     profiles: [stats]
     image: caddy:2.11.9-alpine
@@ -127,6 +127,18 @@ services:
     cap_drop: [ALL]
     cap_add: [NET_BIND_SERVICE]
     mem_limit: 48m
+    restart: unless-stopped
+
+  # Cloudflare tunnel to stats-web. STATS_TUNNEL_DIR holds config.yml and the tunnel credentials (not in git).
+  stats-tunnel:
+    profiles: [stats]
+    image: cloudflare/cloudflared:2026.11.0
+    user: "1000"
+    command: tunnel --no-autoupdate --config /etc/cloudflared/config.yml run
+    volumes:
+      - ${STATS_TUNNEL_DIR:-./stats/tunnel}:/etc/cloudflared:ro
+    depends_on: [stats-web]
+    mem_limit: 64m
     restart: unless-stopped
 
 volumes:

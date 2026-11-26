@@ -118,13 +118,16 @@ The stack also serves a read-only HTTP API on the gold data. The
 - `stats-web` is Caddy. It serves the dashboard page from `DASHBOARD_SITE` and sends `/api/*` to `stats-api`.
   It listens on `127.0.0.1:8302` only. If `DASHBOARD_SITE` has no `index.html`, it serves the one-line page in
   `stats/placeholder/`. If the `DASHBOARD_SITE` folder does not exist, Docker makes it as an empty folder owned by root.
+- `stats-tunnel` is cloudflared. It runs the Cloudflare tunnel that sends the public host name to `stats-web`, so
+  no port is open to the internet. Its `config.yml` and credentials file sit in `STATS_TUNNEL_DIR`, outside git,
+  and `config.yml` must point at `/etc/cloudflared/...` paths and at `http://stats-web:80`.
 - dbt builds the `api` tables from gold (`dbt/models/api/`). They are tables, not views. A view on a gold table
   is dropped each time dbt replaces that table, and a failed run would then leave the API empty.
 
 ### Set it up
 
 1. Clone the dashboard repo next to this repo, or set `DASHBOARD_SITE` in `.env` to its `site/` folder.
-2. Set `API_DB_PASSWORD` and `STATS_SITE_HOSTS` in `.env`.
+2. Set `API_DB_PASSWORD`, `STATS_SITE_HOSTS` and `STATS_TUNNEL_DIR` in `.env`.
 3. Make the database roles. `make up` and `make dbt-build` also do this step. You can run it again.
 
    ```sh
@@ -132,7 +135,7 @@ The stack also serves a read-only HTTP API on the gold data. The
    ```
 
 4. Build the API tables, then start the services. They are in the compose profile `stats`. Start them with
-   `make up` only, because it checks the two values from step 2 and makes the roles first. The other `make`
+   `make up` only, because it checks the values from step 2 and makes the roles first. The other `make`
    targets do not need those values.
 
    ```sh

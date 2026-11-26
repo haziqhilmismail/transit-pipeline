@@ -135,5 +135,20 @@ def load_realtime(
 def missing_archive_dates(
     conn: psycopg.Connection, root: Path, feed: Feed, *, today_utc: date, earliest: date
 ) -> list[date]:
-    loaded = {row[0] for row in conn.execute("select archive_date from bronze.rt_archive where feed = %s", (feed,))}
-    return [d for d in closed_archive_dates(root, feed, today_utc=today_utc, earliest=earliest) if d not in loaded]
+    """Closed days not loaded yet, and loaded days whose file was replaced since (the repair rewrites a packed day)."""
+    loaded = {
+        row[0]: row[1:]
+        for row in conn.execute(
+            "select archive_date, archive_sha256, loaded_at from bronze.rt_archive where feed = %s", (feed,)
+        )
+    }
+    return [
+        d
+        for d in closed_archive_dates(root, feed, today_utc=today_utc, earliest=earliest)
+        if d not in loaded or _replaced_since_load(root / "realtime" / feed / f"{d.isoformat()}.tar.xz", *loaded[d])
+    ]
+
+
+def _replaced_since_load(path: Path, sha256: str, loaded_at: datetime) -> bool:
+    # The mtime check keeps a normal run from hashing every loaded day.
+    return path.stat().st_mtime > loaded_at.timestamp() and file_sha256(path) != sha256

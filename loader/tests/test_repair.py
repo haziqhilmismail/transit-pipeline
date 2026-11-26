@@ -14,7 +14,7 @@ from transit_loader.repair import Malformed, Outcome, RepairResult, member_names
 DAY = date(2026, 11, 20)
 NOW = datetime(2026, 11, 21, 1, tzinfo=UTC)
 FEED = "prasarana-rapid-bus-kl"
-KTMB_DAY = Path("/home/haziq/harith-proj/transit/data/realtime/ktmb/2026-11-25.tar.xz")
+KTMB_DAY = Path(os.environ.get("TRANSIT_SAMPLE_DAY", "/home/haziq/harith-proj/transit/data/realtime/ktmb/2026-11-25.tar.xz"))
 
 
 def at(s: int) -> str:
@@ -78,7 +78,7 @@ def test_plan_rejects_a_day_it_must_not_rewrite(names):
         plan_repair(names, B_NAMES, DAY)
 
 
-@pytest.mark.skipif(not KTMB_DAY.is_file(), reason="Harith's archive is not on this machine")
+@pytest.mark.skipif(not KTMB_DAY.is_file(), reason="sample day not found (set TRANSIT_SAMPLE_DAY)")
 def test_merge_restores_a_cut_hour_of_a_real_day_with_duplicate_names(tmp_path):
     original = shutil.copyfile(KTMB_DAY, tmp_path / "b.tar.xz")
     a = tmp_path / "a.tar.xz"
